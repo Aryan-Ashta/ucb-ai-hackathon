@@ -1,8 +1,8 @@
 # VibeSchool — Demo Readiness Plan
 
-> **For Hermes:** Execute in numbered order. P0 tasks block P1 tasks; P1 blocks P2; deployment tasks depend on P0 being complete. Every task has a one-line verify command that proves it worked.
+> **For Hermes:** Execute in numbered order. P0 tasks block P1 tasks; P1 blocks P2. Every task has a one-line verify command that proves it worked.
 >
-> **Goal:** Take VibeSchool from "code-complete but disconnected" to "live demo working end-to-end on Vercel + Render" in roughly 2 hours of focused work.
+> **Goal:** Take VibeSchool from "code-complete but disconnected" to "live demo working end-to-end on a developer laptop" in roughly 2 hours of focused work. The deployment model is **fully local**: backend on `localhost:8000` (uvicorn), frontend on `localhost:3000` (`bun dev`). There is no Vercel, Render, or any cloud-hosted runtime.
 
 ---
 
@@ -41,13 +41,11 @@ P2-1  Remove hard-coded Sentry DSN fallbacks  (5 min)
 P2-2  Fix tunnelRoute: "/monitoring"       (3 min)
 P2-3  Run full pytest suite                (5 min)
 ── gate: zero deprecation warnings, all tests green ──
-D-1   Deploy backend to Render Starter     (15 min)
-D-2   Deploy frontend to Vercel            (15 min)
-D-3   Wire end-to-end demo                 (10 min)
-── gate: live URL serves a real quiz ──
+L-1   Run end-to-end on the laptop         (5 min)
+── gate: live demo works locally ──
 ```
 
-Total estimate: **~3 hours** end-to-end, including deploy wait time.
+Total estimate: **~2 hours** end-to-end.
 
 ---
 
@@ -71,22 +69,24 @@ Total estimate: **~3 hours** end-to-end, including deploy wait time.
 ### P0-2. Add `CORSMiddleware` to the FastAPI app
 
 - **Where:** `backend/main.py` (after the `app = FastAPI(...)` line, before any `include_router` calls).
-- **Why it matters:** Vercel-hosted frontend → your backend is cross-origin. Browser will block every fetch without `Access-Control-Allow-Origin`.
+- **Why it matters:** The Next.js dev server runs on `http://localhost:3000` and the FastAPI backend on `http://localhost:8000`. Different ports = different origins from the browser's perspective, so cross-origin fetches will be blocked without `Access-Control-Allow-Origin`. (If you later expose the backend via a cloudflared tunnel, the tunnel hostname becomes another origin to allow.)
 - **Files:** `backend/main.py`
 - **Patch:** add directly after `app = FastAPI(title="VibeSchool Backend")`:
   ```python
   from fastapi.middleware.cors import CORSMiddleware
 
-  # During local tunnel development the origin rotates per session, so
-  # allow any localhost/vercel.app host plus a wildcard for ad-hoc tests.
-  # Tighten to specific origins once a real domain is wired.
+  # Local-only deployment. Allow the Next.js dev server, plus any
+  # trycloudflare.com hostname (rotates per session) in case you expose the
+  # backend through a tunnel for an external demo.
   app.add_middleware(
       CORSMiddleware,
       allow_origins=[
-          "https://vibeschool.vercel.app",
-          "https://*.vercel.app",
           "http://localhost:3000",
+          "http://127.0.0.1:3000",
       ],
+      # cloudflared quick-tunnel URLs rotate per session (xxx-yyy.trycloudflare.com),
+      # so we can't list them — match by hostname pattern instead.
+      allow_origin_regex=r"https://[a-z0-9-]+\.trycloudflare\.com",
       allow_credentials=True,
       allow_methods=["*"],
       allow_headers=["*"],
@@ -96,9 +96,9 @@ Total estimate: **~3 hours** end-to-end, including deploy wait time.
   ```bash
   .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
   sleep 2
-  curl -s -H "Origin: https://vibeschool.vercel.app" \
+  curl -s -H "Origin: http://localhost:3000" \
     -D - http://localhost:8000/health | grep -i access-control-allow-origin
-  # expected: access-control-allow-origin: https://vibeschool.vercel.app
+  # expected: access-control-allow-origin: http://localhost:3000
   ```
 
 ### P0-3. Wire the dashboard to `/api/concepts/{user_id}`
@@ -188,13 +188,13 @@ Total estimate: **~3 hours** end-to-end, including deploy wait time.
   # expected: transcript appears, grade result renders, SM-2 next_review advances
   ```
 
-### P1-2. Confirm audio goes directly to the backend (not through Vercel)
+### P1-2. Confirm audio goes directly to the backend (no proxy)
 
 - **Where:** the `fetch` URL inside the MediaRecorder snippet from P1-1.
-- **Why it matters:** Vercel Serverless Functions cap request bodies at 4.5 MB. Audio/webm blobs hit this fast. Going direct to the backend bypasses the cap entirely.
+- **Why it matters:** Next.js dev server doesn't proxy `/api/transcribe`, but even in a hypothetical production build the audio/webm blob should hit FastAPI directly — FastAPI has no body-size cap equivalent to Vercel Serverless Functions' 4.5 MB limit. Going direct bypasses any future proxy layer entirely.
 - **Files:** `frontend/app/quiz/[id]/page.tsx`
-- **Action:** the snippet above already uses `${BACKEND_URL}/api/transcribe` directly. No proxy through `/api/transcribe` on the frontend. **Document this decision with a one-line comment** so future agents don't "fix" it.
-- **Verify:** record a 30-second clip and confirm the backend logs the request at `/api/transcribe` with the full body size (not a 413 from Vercel).
+- **Action:** the snippet above already uses `${BACKEND_URL}/api/transcribe` directly. **Document this decision with a one-line comment** so future agents don't "fix" it by routing through `/api/transcribe` on the frontend.
+- **Verify:** record a 30-second clip and confirm the backend logs the request at `/api/transcribe` with the full body size (not a 413 from any proxy in the middle).
 
 ---
 
@@ -251,74 +251,49 @@ Total estimate: **~3 hours** end-to-end, including deploy wait time.
 
 ---
 
-## D — Deployment
+## L — Local end-to-end run
 
-### D-1. Deploy the backend to Render Starter
+Both the backend and the frontend run locally on the developer laptop. No cloud-hosted runtime is involved at any point. This section replaces the old "D — Deployment" steps; everything from P0/P1/P2 above should be working before you get here.
 
-Reference: `.hermes/plans/2026-06-20_142814-host-backend-locally-cloudflare.md` (Option B), or use this Render-specific path.
+### L-1. Run end-to-end on the laptop
 
-- **Steps:**
-  1. Create `backend/render.yaml` (see below).
-  2. dashboard.render.com → **New Web Service** → connect `Aryan-Ashta/ucb-ai-hackathon`.
-  3. **Root Directory:** `backend`.
-  4. **Build Command:** `pip install --upgrade pip && pip install -r requirements.txt`.
-  5. **Start Command:** `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`.
-  6. **Health Check Path:** `/health`.
-  7. **Plan:** Starter ($7/mo) — no spin-down.
-  8. **Region:** match your Redis Cloud region (Oregon / Virginia).
-  9. Add every required env var from `backend/.env.example`. Mark `*_API_KEY`, `TOKEN_ENCRYPTION_KEY`, `REDIS_*` as Secret.
-- **`backend/render.yaml` (commit this for reproducibility):**
-  ```yaml
-  services:
-    - type: web
-      name: vibeschool-api
-      runtime: python
-      rootDir: backend
-      plan: starter
-      region: oregon
-      buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-      startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-      healthCheckPath: /health
-      autoDeploy: true
-      envVars:
-        - key: PYTHON_VERSION
-          value: 3.11.11
-  ```
-- **Verify:** `curl https://vibeschool-api-<hash>.onrender.com/health` → `{"status":"ok"}`.
+**Prereqs (one-time):**
+- Python 3.14 with the venv at the repo root (`.venv/`) — installed per `backend/requirements.txt`.
+- `bun` (or `npm`) for the frontend.
+- Redis Cloud credentials in `backend/.env` (see `backend/.env.example`).
+- GitHub OAuth app with callback `http://localhost:3000/api/auth/callback/github` and credentials in `frontend/.env.local`.
 
-### D-2. Deploy the frontend to Vercel
+**Steps:**
 
-- **Steps:**
-  1. vercel.com → **Add New Project** → import `Aryan-Ashta/ucb-ai-hackathon`.
-  2. **Root Directory:** `frontend`. (Same monorepo concern as Render.)
-  3. **Framework Preset:** Next.js (auto-detected).
-  4. **Environment Variables** (set in Vercel dashboard, NOT in a `.env` file):
-     ```
-     NEXT_PUBLIC_BACKEND_URL        https://vibeschool-api-<hash>.onrender.com
-     NEXTAUTH_SECRET                <openssl rand -base64 32>
-     NEXTAUTH_URL                   https://vibeschool.vercel.app
-     GITHUB_CLIENT_ID               <from GitHub OAuth app>
-     GITHUB_CLIENT_SECRET           <from GitHub OAuth app>
-     NEXT_PUBLIC_SENTRY_DSN         <your DSN>
-     SENTRY_DSN                     <your DSN, can match client>
-     SENTRY_AUTH_TOKEN              <Sentry project token, project:releases scope>
-     ```
-  5. **Build Command:** leave default (`next build`).
-  6. Deploy.
-- **GitHub OAuth callback:**
-  In github.com → Settings → Developer settings → OAuth app → add `https://vibeschool.vercel.app/api/auth/callback/github` as the authorization callback URL.
-- **Verify:** open the deployed URL → click "Sign in with GitHub" → land back on `/dashboard` authenticated.
+1. **Terminal 1 — backend:**
+   ```bash
+   cd /Users/aryanashta/Documents/GitHub/ucb-ai-hackathon
+   ./.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
+   ```
+   Confirm with `curl http://localhost:8000/health` → `{"status":"ok"}`.
 
-### D-3. Wire end-to-end demo
+2. **Terminal 2 — frontend:**
+   ```bash
+   cd frontend
+   bun dev
+   ```
+   Confirm with `curl -I http://localhost:3000` → `200 OK`.
 
-- **Action:**
-  1. Vercel → redeploy with `NEXT_PUBLIC_BACKEND_URL` set (D-2 above).
-  2. Open `https://vibeschool.vercel.app/dashboard` in an incognito window.
-  3. Sign in with GitHub.
-  4. Confirm `/api/concepts/<github_id>` returns concepts (or empty if the user has no PRs ingested yet).
-  5. Click a 🎤 button → record an answer → confirm grade + next_review update.
-- **If dashboard is empty for the signed-in user:** the OAuth sync path needs to run first. Per `.hermes/plans/2026-06-20_131518-oauth-sync-refactor.md`, the frontend should call `POST /api/sync` with `Authorization: Bearer <github_access_token>` on dashboard mount. **This sync endpoint is described in the plan but is NOT yet implemented in `backend/routers/sync.py`.** If the demo needs populated data, that's the highest-priority missing piece — see "Open work" below.
-- **Verify:** the demo loop works end-to-end against the deployed URLs.
+3. **Optional Terminal 3 — cloudflared tunnel** (only if judges need to reach the app from their own devices; see `.hermes/plans/2026-06-20_142814-host-backend-locally-cloudflare.md`):
+   ```bash
+   ./start-local.sh
+   ```
+   If used, set `NEXT_PUBLIC_BACKEND_URL` in `frontend/.env.local` to the printed tunnel URL and restart `bun dev`. The frontend itself still runs locally; only the backend's `localhost:8000` is exposed publicly.
+
+4. **Sign in.** Open `http://localhost:3000` in a browser, click "Sign in with GitHub". You should land on `/dashboard`.
+
+5. **Trigger sync.** The dashboard calls `POST /api/sync` on mount. If the list is empty, click the dashboard's "Sync now" button (if exposed) or call `POST /api/sync` directly with the bearer token.
+
+6. **Click a 🎤 button → record an answer → confirm grade + `next_review` update.**
+
+**Verify:** the full voice-quiz loop works against `http://localhost:3000` on the laptop. If you used the cloudflared tunnel, also verify it works at the printed `https://...trycloudflare.com` URL.
+
+**If the dashboard is empty for the signed-in user:** the OAuth sync path needs to run first. Per `.hermes/plans/2026-06-20_131518-oauth-sync-refactor.md`, the frontend calls `POST /api/sync` with `Authorization: Bearer <github_token>` on dashboard mount. The endpoint is implemented in `backend/routers/sync.py`; if the list is still empty, hit `/api/sync/status` to see the last sync timestamp, or `/api/sync` again to force a fresh pull.
 
 ---
 
@@ -326,7 +301,7 @@ Reference: `.hermes/plans/2026-06-20_142814-host-backend-locally-cloudflare.md` 
 
 ```bash
 # Backend
-cd backend
+cd /Users/aryanashta/Documents/GitHub/ucb-ai-hackathon
 .venv/bin/pytest                              # all tests green
 .venv/bin/python -m backend.scripts.check_redis
 .venv/bin/uvicorn backend.main:app --port 8000 &
@@ -334,15 +309,16 @@ sleep 2 && curl http://localhost:8000/health   # → {"status":"ok"}
 kill %1
 
 # Frontend
-cd ../frontend
+cd frontend
 bun run build                                   # clean build, no Sentry warnings
 bun run lint                                    # clean
 npx tsc --noEmit                                # clean
 
-# Live deployment
-curl https://vibeschool-api-<hash>.onrender.com/health
-curl -I https://vibeschool.vercel.app
-# visit the URL in a browser, sign in, click a concept, record an answer
+# Manual end-to-end
+# 1. Backend running: ./.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
+# 2. Frontend running: cd frontend && bun dev
+# 3. Open http://localhost:3000 in a browser, sign in with GitHub, click a concept, record an answer
+# 4. (Optional) Run ./start-local.sh to expose the backend via cloudflared; verify from a second device
 ```
 
 ---
@@ -361,9 +337,8 @@ curl -I https://vibeschool.vercel.app
 | `frontend/sentry.server.config.ts` | **modify** — remove hard-coded DSN | P2-1 |
 | `frontend/sentry.edge.config.ts` | **modify** — remove hard-coded DSN | P2-1 |
 | `frontend/next.config.mjs` | **modify** — remove `tunnelRoute` | P2-2 |
-| `backend/render.yaml` | **create** | D-1 |
-| Vercel project env vars | **set in dashboard** | D-2 |
-| GitHub OAuth app callback URL | **add** | D-2 |
+
+No cloud-platform config files (no `render.yaml`, no Vercel project, no hosted runtime) are needed — deployment is local.
 
 ---
 
@@ -371,10 +346,8 @@ curl -I https://vibeschool.vercel.app
 
 These are real but lower priority. If time permits, tackle in this order:
 
-1. **Implement `POST /api/sync`** — described in detail in `.hermes/plans/2026-06-20_131518-oauth-sync-refactor.md`. Until this exists, the dashboard shows whatever the dev machine last ingested, not the signed-in user's actual PRs. Critical for a non-dev demo.
-2. **Real auth on backend routers** — `backend/routers/concepts.py:8`, `quiz.py:37`, `schedule.py:18`, `enrich.py:16` all trust the client's `user_id`. Add a `get_current_user_id` dependency that verifies the bearer token and rejects mismatches. See `AGENTS/vibeschool_audit_issues.md` P1-4.
-3. **Custom domain** — `api.vibeschool.app` on Render + `vibeschool.app` on Vercel, with `vibeschool_*.app` whitelisted in CORS.
-4. **Stable Cloudflare tunnel** for local dev so the URL doesn't rotate per session (see `.hermes/plans/2026-06-20_142814-…` §"Optional polish").
+1. **Stable Cloudflare tunnel** for local dev so the URL doesn't rotate per session (see `.hermes/plans/2026-06-20_142814-…` §"Optional polish"). Reminder: this is *not* a deployment — the backend still runs locally; the tunnel only forwards public traffic to `localhost:8000`.
+2. **A second GitHub OAuth app** (optional, only if you ever expose a non-local URL). For the current local-only deployment, the single OAuth app with callback `http://localhost:3000/api/auth/callback/github` is sufficient.
 
 ---
 

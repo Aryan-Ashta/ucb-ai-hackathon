@@ -6,7 +6,10 @@
 # What it does:
 #   1. Boots uvicorn on localhost:8000
 #   2. Starts cloudflared and waits for the public tunnel URL
-#   3. Prints the URL — copy it into Vercel as NEXT_PUBLIC_BACKEND_URL
+#   3. Prints the URL — paste it into frontend/.env.local as
+#      NEXT_PUBLIC_BACKEND_URL (only needed when demoing from a second
+#      device; the locally-running `bun dev` already talks to
+#      localhost:8000 by default)
 #
 # Stop: Ctrl-C kills both processes.
 
@@ -54,11 +57,16 @@ cloudflared tunnel --url http://localhost:8000 2>&1 | while IFS= read -r line; d
     echo "============================================================"
     echo "  Tunnel URL: $url"
     echo ""
-    echo "  Set this in Vercel → Settings → Environment Variables:"
-    echo "    NEXT_PUBLIC_BACKEND_URL = $url"
+    echo "  If you're demoing from this laptop only, you can ignore this"
+    echo "  URL — the locally-running `bun dev` already talks to"
+    echo "  http://localhost:8000."
     echo ""
-    echo "  Or for local frontend dev, update frontend/.env.local:"
+    echo "  If you're demoing from a second device (judge's phone, another"
+    echo "  laptop), paste the URL into frontend/.env.local:"
+    echo ""
     echo "    NEXT_PUBLIC_BACKEND_URL=$url"
+    echo ""
+    echo "  Then restart `bun dev` so the env var is picked up."
     echo "============================================================"
     echo ""
   fi

@@ -55,7 +55,7 @@ Banana duck (see uploaded reference image). Appears in header, quiz transitions,
 | Web agent | Browserbase (docs enrichment) |
 | Error monitoring | Sentry (init on day one) |
 | Auth | GitHub OAuth (NextAuth or simple cookie) |
-| Deployment | Vercel (frontend) + Railway/Render (backend) or monorepo on Vercel |
+| Deployment | Local processes only — backend on `localhost:8000` (uvicorn), frontend on `localhost:3000` (`bun dev`). Cloudflare tunnel may optionally expose the backend for external demos; no Vercel/Render/cloud-hosted runtime. |
 
 ---
 

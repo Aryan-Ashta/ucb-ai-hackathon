@@ -255,15 +255,16 @@ Recommended execution order is the same as the numbering: fix P0-1 first
 
 ### P2-2. `RENAME.md` is full of unfinished placeholders
 
-- **Where:** `RENAME.md` (entire file, 20 lines)
+- **Where:** `RENAME.md` (now ~50 lines after the local-deployment rewrite)
 - **What:** Action items still pending:
   - Sentry `org`/`project` = `ucb-ai-hackathon` (in `frontend/next.config.mjs:7-8`)
   - GitHub App name and repo name
-  - NextAuth callback URL on production
-  - `NEXTAUTH_URL` env in deployment
+  - Real Sentry DSN still committed in `frontend/.env.local.example` (P2-3)
 - **Why it matters:** Demo can ship without these (Sentry works with a
-  throwaway org, NextAuth defaults to the configured callback URL), but
-  going public with placeholder org slugs in a public repo looks rough.
+  throwaway org, NextAuth defaults to the configured callback URL — which
+  is now correctly `http://localhost:3000` for the local-only deployment).
+  Going public with placeholder org slugs in a public repo still looks
+  rough.
 - **Fix:** tick off what's done, delete the file once the rest is settled.
   If the team isn't ready to ship publicly, the file should be in
   `AGENTS/` rather than at repo root.

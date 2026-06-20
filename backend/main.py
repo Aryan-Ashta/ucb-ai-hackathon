@@ -8,10 +8,12 @@ app = FastAPI(title="VibeSchool Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://vibeschool.vercel.app",
-        "https://*.vercel.app",
-        "http://localhost:3000",
+        "http://localhost:3000",          # local Next.js dev (browser on the laptop)
+        "http://127.0.0.1:3000",          # ditto, IPv4 form
     ],
+    # cloudflared quick-tunnel URLs rotate per session (xxx-yyy.trycloudflare.com),
+    # so we can't list them — match by hostname pattern instead.
+    allow_origin_regex=r"https://[a-z0-9-]+\.trycloudflare\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

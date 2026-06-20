@@ -24,7 +24,7 @@
 - `frontend/app/dashboard/page.tsx` uses hard-coded `MOCK_PRS` (no real API calls yet).
 
 **Assumptions (stated so they're checkable later):**
-1. The system has not been deployed; no production Redis keys exist with the old `concept:{user_id}:*` schema. Cache-key migration is a non-problem.
+1. The system has not yet been run end-to-end; no production Redis keys exist with the old `concept:{user_id}:*` schema. Cache-key migration is a non-problem.
 2. `user_id` semantics change: under webhooks it was the **PR author's GitHub id** (from the payload); under OAuth it is the **signed-in user's GitHub id**. The cache key namespace `user_id:{github_id}:...` is preserved, so old keys (if any) keep working.
 3. The NextAuth `accessToken` is the same GitHub token used for the API; NextAuth's `account.access_token` is the classic OAuth access token, not a GitHub App installation token. (Verify when implementing — see Task 3.)
 4. No "select repos" UX in this iteration; sync covers all repos the user has push access to. (This is a deliberate YAGNI decision — see Open Questions.)
