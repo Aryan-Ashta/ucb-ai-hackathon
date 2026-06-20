@@ -3,133 +3,20 @@
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { getMockPRs, type DashboardPR } from "@/lib/mock";
+import type { Concept } from "@/lib/types";
 
-// --- Types (shaped like the real API response from Aryan's A3/A4 tasks) ---
+// Single source of truth: the same concept bank the quiz flow reads, grouped by
+// PR. Every "Quiz me" link therefore resolves to a real /quiz/[id].
+type PR = DashboardPR;
+const MOCK_PRS: PR[] = getMockPRs();
 
-interface Concept {
-  id: string;
-  concept: string;
-  roast_text: string;
-  question_text: string;
-  answer_hint: string;
-  next_review: string; // ISO timestamp
-  interval: number;    // days
-  ease_factor: number;
-  repetitions: number;
-}
-
-interface PR {
-  id: string;
-  title: string;
-  repo: string;
-  pr_number: number;
-  merged_at: string;
-  concepts: Concept[];
-}
-
-// --- Mock data ---
+// --- Helpers ---
 
 const now = Date.now();
 const mins = (n: number) => n * 60 * 1000;
 const hours = (n: number) => n * 60 * mins(1);
 const days = (n: number) => n * 24 * hours(1);
-
-const MOCK_PRS: PR[] = [
-  {
-    id: "pr-1",
-    title: "Add memoization to recursive functions",
-    repo: "myorg/vibeschool",
-    pr_number: 42,
-    merged_at: new Date(now - days(1)).toISOString(),
-    concepts: [
-      {
-        id: "c-1",
-        concept: "Memoization",
-        roast_text:
-          "You wrote a recursive fib with zero caching. A CS101 student called, they want their homework back.",
-        question_text:
-          "What technique would eliminate the redundant recomputation in this recursive function?",
-        answer_hint: "memoization, caching, dynamic programming, lookup table",
-        next_review: new Date(now - mins(30)).toISOString(), // overdue 30min
-        interval: 1,
-        ease_factor: 2.5,
-        repetitions: 0,
-      },
-      {
-        id: "c-2",
-        concept: "Time Complexity",
-        roast_text:
-          "O(2^n) in 2026. Bold choice. Genuinely bold.",
-        question_text:
-          "What is the time complexity of your original implementation vs. the memoized version?",
-        answer_hint: "O(2^n) vs O(n), exponential vs linear",
-        next_review: new Date(now + hours(2)).toISOString(),
-        interval: 1,
-        ease_factor: 2.5,
-        repetitions: 0,
-      },
-    ],
-  },
-  {
-    id: "pr-2",
-    title: "Refactor auth middleware",
-    repo: "myorg/vibeschool",
-    pr_number: 39,
-    merged_at: new Date(now - days(2)).toISOString(),
-    concepts: [
-      {
-        id: "c-3",
-        concept: "JWT Verification",
-        roast_text:
-          "You're not checking the algorithm field. Congrats on your algorithm confusion vulnerability.",
-        question_text:
-          "What field in a JWT header must be validated to prevent algorithm confusion attacks?",
-        answer_hint: "alg field, algorithm header, none algorithm",
-        next_review: new Date(now - days(1)).toISOString(), // overdue 1 day
-        interval: 6,
-        ease_factor: 2.3,
-        repetitions: 1,
-      },
-      {
-        id: "c-4",
-        concept: "Middleware Composition",
-        roast_text:
-          "Four middlewares doing the job of one. Hope you enjoy debugging call stacks.",
-        question_text:
-          "How would you compose these four middleware functions into a single reusable pipeline?",
-        answer_hint: "function composition, pipe, chain, higher-order functions",
-        next_review: new Date(now + days(3)).toISOString(),
-        interval: 3,
-        ease_factor: 2.5,
-        repetitions: 1,
-      },
-    ],
-  },
-  {
-    id: "pr-3",
-    title: "Add Redis caching layer",
-    repo: "myorg/vibeschool",
-    pr_number: 35,
-    merged_at: new Date(now - days(4)).toISOString(),
-    concepts: [
-      {
-        id: "c-5",
-        concept: "Cache Invalidation",
-        roast_text:
-          "You cached everything with a 24h TTL and called it a day. Phil Karlton is rolling in his grave.",
-        question_text:
-          "What are the two hardest problems in computer science, and how does your TTL strategy address cache invalidation?",
-        answer_hint: "naming things, cache invalidation, off-by-one errors",
-        next_review: new Date(now + days(7)).toISOString(),
-        interval: 7,
-        ease_factor: 2.6,
-        repetitions: 2,
-      },
-    ],
-  },
-];
-
-// --- Helpers ---
 
 function getDueStatus(nextReview: string): "overdue" | "today" | "upcoming" {
   const diff = new Date(nextReview).getTime() - now;
@@ -345,7 +232,7 @@ export default function Dashboard() {
             </p>
           </div>
           {MOCK_PRS.map((pr) => (
-            <PRSection key={pr.id} pr={pr} />
+            <PRSection key={pr.pr_number} pr={pr} />
           ))}
         </main>
 
