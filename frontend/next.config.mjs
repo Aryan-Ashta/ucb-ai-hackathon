@@ -10,6 +10,6 @@ export default withSentryConfig(nextConfig, {
   authToken: process.env.SENTRY_AUTH_TOKEN,
 
   widenClientFileUpload: true,
-  tunnelRoute: "/monitoring",
+  // tunnelRoute removed — no backing route; clients ship events directly
   silent: !process.env.CI,
 });

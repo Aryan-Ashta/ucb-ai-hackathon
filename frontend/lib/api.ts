@@ -88,9 +88,23 @@ export interface SyncStatusResponse {
   last_sync_iso: string | null;
 }
 
+export interface GradeResult {
+  passed: boolean;
+  quality: number;
+  explanation: string;
+  next_review: string;
+}
+
 export const api = {
   listDueConcepts: (token: string) =>
     apiFetch<ListDueResponse>("/api/concepts", { accessToken: token }),
+
+  gradeAnswer: (token: string, conceptId: string, transcript: string) =>
+    apiFetch<GradeResult>("/api/grade", {
+      method: "POST",
+      accessToken: token,
+      body: JSON.stringify({ concept_id: conceptId, transcript }),
+    }),
 
   triggerSync: (token: string) =>
     apiFetch<SyncTriggerResponse>("/api/sync", {
