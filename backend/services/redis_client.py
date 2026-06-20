@@ -169,3 +169,57 @@ async def update_sm2_state(user_id: str, concept_id: str, quality: int) -> int:
     )
 
     return new_state["next_review"]
+
+# ── user-scoped state (added by OAuth refactor) ────────────────────────────
+async def mark_pr_processed(user_id: str, *, repo: str, pr_number: int, merged_at: str) -> None:
+    """Record that we ingested this PR, so a subsequent sync skips it."""
+    r = await get_redis()
+    key = f"user:{user_id}:prs"
+    await r.hset(key, str(pr_number), json.dumps({"repo": repo, "merged_at": merged_at}))
+    await r.expire(key, REDIS_TTL_SECONDS)
+
+
+async def list_processed_prs(user_id: str) -> list[dict]:
+    """All PRs we've previously ingested for this user, as [{pr_number, repo, merged_at}]."""
+    r = await get_redis()
+    raw = await r.hgetall(f"user:{user_id}:prs")
+    return [{"pr_number": int(k), **json.loads(v)} for k, v in raw.items()]
+
+
+async def get_last_sync(user_id: str) -> int | None:
+    """Unix timestamp of the user's last successful sync, or None."""
+    r = await get_redis()
+    val = await r.get(f"user:{user_id}:last_sync")
+    return int(val) if val else None
+
+
+async def set_last_sync(user_id: str, ts: int) -> None:
+    r = await get_redis()
+    await r.set(f"user:{user_id}:last_sync", ts, ex=REDIS_TTL_SECONDS)
+
+
+async def acquire_sync_lock(user_id: str, ttl: int = 300) -> bool:
+    """
+    Best-effort mutex so two simultaneous syncs for the same user don't
+    double-bill Claude. Uses Redis SET NX with a short TTL — if the caller
+    dies mid-sync, the lock auto-releases.
+    """
+    r = await get_redis()
+    return bool(await r.set(f"user:{user_id}:sync_inflight", "1", ex=ttl, nx=True))
+
+
+async def release_sync_lock(user_id: str) -> None:
+    r = await get_redis()
+    await r.delete(f"user:{user_id}:sync_inflight")
+
+
+async def add_user_repo(user_id: str, repo_full_name: str) -> None:
+    """Track which repos the user has access to (for the dashboard sidebar)."""
+    r = await get_redis()
+    await r.sadd(f"user:{user_id}:repos", repo_full_name)
+    await r.expire(f"user:{user_id}:repos", REDIS_TTL_SECONDS)
+
+
+async def list_user_repos_cached(user_id: str) -> list[str]:
+    r = await get_redis()
+    return list(await r.smembers(f"user:{user_id}:repos"))
