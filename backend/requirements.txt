@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-dotenv
+httpx
+anthropic
+redis
+sentry-sdk
+PyGithub
+pydantic
+python-multipart

@@ -1,0 +1,58 @@
+import sentry_sdk
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel
+
+from backend.services.claude import grade_answer
+from backend.services.deepgram_stt import transcribe_audio
+from backend.services.redis_client import get_quiz_content, update_sm2_state
+
+router = APIRouter()
+
+
+@router.post("/transcribe")
+async def transcribe(audio: UploadFile = File(...)):
+    """Accept audio/webm from a browser MediaRecorder, return the transcript."""
+    audio_bytes = await audio.read()
+
+    if len(audio_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+
+    with sentry_sdk.start_span(op="deepgram.stt", description="Transcribe audio"):
+        transcript = await transcribe_audio(
+            audio_bytes, mimetype=audio.content_type or "audio/webm"
+        )
+
+    if not transcript:
+        return {"transcript": "", "error": "No speech detected — please try again"}
+
+    return {"transcript": transcript}
+
+
+class GradeRequest(BaseModel):
+    user_id: str
+    concept_id: str
+    transcript: str
+
+
+@router.post("/grade")
+async def grade(req: GradeRequest):
+    """Grade a spoken answer and update SM-2 state."""
+    quiz = await get_quiz_content(req.user_id, req.concept_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Concept not found in Redis")
+
+    with sentry_sdk.start_span(op="claude.grade", description="Grade answer"):
+        result = await grade_answer(
+            question_text=quiz["question_text"],
+            answer_hint=quiz["answer_hint"],
+            transcript=req.transcript,
+        )
+
+    next_review = await update_sm2_state(req.user_id, req.concept_id, result["quality"])
+
+    return {
+        "passed": result["passed"],
+        "quality": result["quality"],
+        "explanation": result["explanation"],
+        "next_review": next_review,
+    }
