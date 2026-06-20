@@ -3,6 +3,7 @@ import { Bricolage_Grotesque } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "./providers";
+import * as Sentry from '@sentry/nextjs';
 
 // Display: a contemporary grotesque with real character — used with restraint
 // for the question hero and result words.
@@ -27,11 +28,16 @@ const geistMono = localFont({
   weight: "100 900",
 });
 
-export const metadata: Metadata = {
-  title: "VibeSchool — Learn from your PRs",
-  description:
-    "Spaced-repetition developer learning that turns your merged GitHub PRs into voice quizzes.",
-};
+export function generateMetadata(): Metadata {
+  return {
+    title: "VibeSchool — Learn from your PRs",
+    description:
+      "Spaced-repetition developer learning that turns your merged GitHub PRs into voice quizzes.",
+    other: {
+      ...Sentry.getTraceData(),
+    },
+  };
+}
 
 export default function RootLayout({
   children,

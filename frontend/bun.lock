@@ -5,7 +5,7 @@
     "": {
       "name": "frontend",
       "dependencies": {
-        "@sentry/nextjs": "^10.59.0",
+        "@sentry/nextjs": "10",
         "next": "14.2.35",
         "next-auth": "^4.24.14",
         "react": "^18",

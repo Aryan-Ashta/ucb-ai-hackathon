@@ -6,10 +6,14 @@ const nextConfig = {};
 export default withSentryConfig(nextConfig, {
   org: "ucb-ai-hackathon",
   project: "ucb-ai-hackathon",
-
   authToken: process.env.SENTRY_AUTH_TOKEN,
-
-  widenClientFileUpload: true,
-  // tunnelRoute removed — no backing route; clients ship events directly
   silent: !process.env.CI,
+  widenClientFileUpload: true,
+  tunnelRoute: "/monitoring",
+  webpack: {
+    automaticVercelMonitors: true,
+    treeshake: {
+      removeDebugLogging: true,
+    },
+  },
 });
