@@ -16,15 +16,20 @@ SKIP_PATTERNS = [
 ]
 
 
-async def fetch_and_parse_diff(repo_full_name: str, pr_number: int) -> str:
+async def fetch_and_parse_diff(
+    repo_full_name: str, pr_number: int, *, access_token: str = ""
+) -> str:
     """
-    Fetch the unified diff for a PR from the GitHub API.
+    Fetch + clean a PR diff. `access_token` is the per-request user's OAuth
+    token (preferred). Falls back to the env `GITHUB_TOKEN` if no token is
+    supplied — useful for one-off scripts and cron background sync.
     Returns cleaned diff text or empty string if nothing useful is found.
     """
     url = f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}"
     headers = {"Accept": "application/vnd.github.v3.diff"}
-    if GITHUB_TOKEN:
-        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+    token = access_token or GITHUB_TOKEN
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers, timeout=15.0)

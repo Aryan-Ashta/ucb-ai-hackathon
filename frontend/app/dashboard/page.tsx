@@ -2,13 +2,12 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { getMockPRs, type DashboardPR } from "@/lib/mock";
 import type { Concept } from "@/lib/types";
-import { USING_MOCK } from "@/lib/api";
+import { api, USING_MOCK } from "@/lib/api";
 
 type PR = DashboardPR;
-const MOCK_PRS: PR[] = getMockPRs();
 
 // --- Time helpers ---
 
@@ -48,12 +47,32 @@ function masteryPct(interval: number): number {
   return Math.min(Math.round((interval / 30) * 100), 100);
 }
 
+/** Group a flat concept list into DashboardPRs by pr_number. */
+function groupByPR(concepts: Concept[]): PR[] {
+  const order: number[] = [];
+  const byPr: Record<number, Concept[]> = {};
+  for (const c of concepts) {
+    const pr = c.pr_number ?? 0;
+    if (!byPr[pr]) { byPr[pr] = []; order.push(pr); }
+    byPr[pr].push(c);
+  }
+  return order.map((pr_number) => {
+    const cs = byPr[pr_number];
+    return {
+      pr_number,
+      repo: cs[0].repo ?? "",
+      title: cs[0].pr_title ?? `PR #${pr_number}`,
+      merged_at: new Date(Date.now() - 2 * DAY).toISOString(),
+      concepts: cs,
+    };
+  });
+}
+
 // --- Components ---
 
 /**
  * Due-queue card — styled like a git diff hunk.
  * Left accent bar: coral = overdue, marigold = due today.
- * Everything else is quiet so the accent reads clearly.
  */
 function DueCard({ concept }: { concept: Concept & { prTitle: string } }) {
   const status = getDueStatus(concept.next_review);
@@ -75,11 +94,7 @@ function DueCard({ concept }: { concept: Concept & { prTitle: string } }) {
         </p>
       </div>
       <div className="flex items-center gap-3 shrink-0">
-        <span
-          className={`font-mono text-xs tabular-nums ${
-            isOverdue ? "text-coral" : "text-marigold"
-          }`}
-        >
+        <span className={`font-mono text-xs tabular-nums ${isOverdue ? "text-coral" : "text-marigold"}`}>
           {formatDue(concept.next_review)}
         </span>
         <span className="text-ink-faint group-hover:text-ink transition-colors text-sm">→</span>
@@ -88,7 +103,7 @@ function DueCard({ concept }: { concept: Concept & { prTitle: string } }) {
   );
 }
 
-/** Compact concept row inside a PR block. Mastery bar + next-review stamp. */
+/** Compact concept row inside a PR block. */
 function ConceptRow({ concept }: { concept: Concept }) {
   const status = getDueStatus(concept.next_review);
   const pct = masteryPct(concept.interval);
@@ -102,7 +117,6 @@ function ConceptRow({ concept }: { concept: Concept }) {
         <p className="text-sm font-medium text-ink group-hover:text-marigold transition-colors truncate">
           {concept.concept}
         </p>
-        {/* Mastery bar */}
         <div className="flex items-center gap-2 mt-1.5">
           <div className="h-[3px] w-20 rounded-full bg-canvas overflow-hidden">
             <div
@@ -115,11 +129,7 @@ function ConceptRow({ concept }: { concept: Concept }) {
       </div>
       <span
         className={`font-mono text-[11px] shrink-0 tabular-nums ${
-          status === "overdue"
-            ? "text-coral"
-            : status === "today"
-            ? "text-marigold"
-            : "text-ink-faint"
+          status === "overdue" ? "text-coral" : status === "today" ? "text-marigold" : "text-ink-faint"
         }`}
       >
         {formatDue(concept.next_review)}
@@ -132,7 +142,6 @@ function ConceptRow({ concept }: { concept: Concept }) {
 function PRBlock({ pr }: { pr: PR }) {
   return (
     <div className="rounded-2xl bg-surface-1 border border-line overflow-hidden">
-      {/* PR header */}
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-line">
         <div className="min-w-0 flex-1">
           <p className="font-mono text-[11px] text-ink-faint mb-0.5">
@@ -146,7 +155,6 @@ function PRBlock({ pr }: { pr: PR }) {
           {pr.concepts.length}c
         </span>
       </div>
-      {/* Concept rows */}
       <div className="p-3 flex flex-col gap-2">
         {pr.concepts.map((c) => (
           <ConceptRow key={c.id} concept={c} />
@@ -173,10 +181,25 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [prs, setPrs] = useState<PR[]>(USING_MOCK ? getMockPRs() : []);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(!USING_MOCK);
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/");
   }, [status, router]);
+
+  // Live backend: fetch due concepts and group into PRs
+  useEffect(() => {
+    if (USING_MOCK || status !== "authenticated" || !session?.accessToken) return;
+    setFetching(true);
+    setFetchError(null);
+    api
+      .listDueConcepts(session.accessToken)
+      .then((data) => setPrs(groupByPR(data.due)))
+      .catch((err) => setFetchError(err instanceof Error ? err.message : "Failed to load concepts"))
+      .finally(() => setFetching(false));
+  }, [status, session?.accessToken]);
 
   if (status === "loading" || !session) {
     return (
@@ -186,15 +209,16 @@ export default function Dashboard() {
     );
   }
 
-  // Due queue: overdue + today, most-overdue first
-  const dueItems = MOCK_PRS.flatMap((pr) =>
-    pr.concepts
-      .filter((c) => getDueStatus(c.next_review) !== "upcoming")
-      .map((c) => ({ ...c, prTitle: pr.title }))
-  ).sort((a, b) => new Date(a.next_review).getTime() - new Date(b.next_review).getTime());
+  const dueItems = prs
+    .flatMap((pr) =>
+      pr.concepts
+        .filter((c) => getDueStatus(c.next_review) !== "upcoming")
+        .map((c) => ({ ...c, prTitle: pr.title }))
+    )
+    .sort((a, b) => new Date(a.next_review).getTime() - new Date(b.next_review).getTime());
 
   const overdueCount = dueItems.filter((c) => getDueStatus(c.next_review) === "overdue").length;
-  const totalConcepts = MOCK_PRS.reduce((n, pr) => n + pr.concepts.length, 0);
+  const totalConcepts = prs.reduce((n, pr) => n + pr.concepts.length, 0);
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -222,38 +246,53 @@ export default function Dashboard() {
       </header>
 
       <div className="max-w-3xl mx-auto px-5 py-10 flex flex-col gap-12">
-        {/* Hero — the one number that matters */}
+        {/* Hero */}
         <div className="animate-rise">
           <div className="flex items-end gap-3 mb-3">
             <span className="font-display text-[4.5rem] leading-none font-extrabold text-marigold tabular-nums tracking-tightest">
-              {dueItems.length}
+              {fetching ? "…" : dueItems.length}
             </span>
             <span className="font-display text-2xl font-bold text-ink-dim pb-2">
               {dueItems.length === 1 ? "concept to review" : "concepts to review"}
             </span>
           </div>
-          {/* Stat chips */}
           <div className="flex flex-wrap gap-2">
             {overdueCount > 0 && (
               <span className="font-mono text-xs bg-coral/10 border border-coral/25 text-coral px-2.5 py-1 rounded-lg">
                 {overdueCount} overdue
               </span>
             )}
-            <span className="font-mono text-xs bg-surface-2 border border-line text-ink-dim px-2.5 py-1 rounded-lg">
-              {totalConcepts} concepts tracked
-            </span>
-            <span className="font-mono text-xs bg-surface-2 border border-line text-ink-dim px-2.5 py-1 rounded-lg">
-              {MOCK_PRS.length} PRs
-            </span>
+            {totalConcepts > 0 && (
+              <span className="font-mono text-xs bg-surface-2 border border-line text-ink-dim px-2.5 py-1 rounded-lg">
+                {totalConcepts} concepts tracked
+              </span>
+            )}
+            {prs.length > 0 && (
+              <span className="font-mono text-xs bg-surface-2 border border-line text-ink-dim px-2.5 py-1 rounded-lg">
+                {prs.length} PRs
+              </span>
+            )}
           </div>
         </div>
+
+        {/* Fetch error */}
+        {fetchError && (
+          <div className="rounded-2xl bg-surface-1 border border-coral/30 px-5 py-4">
+            <p className="font-mono text-xs text-coral mb-1">failed to load concepts</p>
+            <p className="font-mono text-[11px] text-ink-faint">{fetchError}</p>
+          </div>
+        )}
 
         {/* Due queue */}
         <section>
           <SectionLabel>
             {dueItems.length > 0 ? `due now · ${dueItems.length}` : "due now"}
           </SectionLabel>
-          {dueItems.length > 0 ? (
+          {fetching ? (
+            <div className="py-10 text-center font-mono text-sm text-ink-faint animate-pulse">
+              loading…
+            </div>
+          ) : dueItems.length > 0 ? (
             <div className="flex flex-col gap-2">
               {dueItems.map((c) => (
                 <DueCard key={c.id} concept={c} />
@@ -270,14 +309,16 @@ export default function Dashboard() {
         </section>
 
         {/* All concepts, grouped by PR */}
-        <section>
-          <SectionLabel>concept bank · {totalConcepts}</SectionLabel>
-          <div className="flex flex-col gap-4">
-            {MOCK_PRS.map((pr) => (
-              <PRBlock key={pr.pr_number} pr={pr} />
-            ))}
-          </div>
-        </section>
+        {prs.length > 0 && (
+          <section>
+            <SectionLabel>concept bank · {totalConcepts}</SectionLabel>
+            <div className="flex flex-col gap-4">
+              {prs.map((pr) => (
+                <PRBlock key={pr.pr_number} pr={pr} />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
 
       {USING_MOCK && (

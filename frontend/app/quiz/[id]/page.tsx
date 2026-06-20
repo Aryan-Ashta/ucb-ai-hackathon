@@ -3,6 +3,7 @@
 import { gradeAnswer, getConcept, transcribeAudio, USING_MOCK } from "@/lib/api";
 import type { Concept, GradeResult } from "@/lib/types";
 import { useRecorder } from "@/lib/useRecorder";
+import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -35,6 +36,7 @@ export default function QuizPage() {
   const params = useParams<{ id: string }>();
   const id = decodeURIComponent(params.id);
   const router = useRouter();
+  const { data: session } = useSession();
   const rec = useRecorder();
 
   const [concept, setConcept] = useState<Concept | null>(null);
@@ -54,7 +56,7 @@ export default function QuizPage() {
     setErrorMsg(null);
     setTyped("");
     rec.reset();
-    getConcept(id).then((c) => {
+    getConcept(id, session?.accessToken ?? undefined).then((c) => {
       if (!alive) return;
       setConcept(c);
       setPhase(c ? "intro" : "notfound");
@@ -79,7 +81,7 @@ export default function QuizPage() {
         let text = directText?.trim() ?? "";
         if (!directText) {
           setStage("transcribing");
-          const r = await transcribeAudio(audio!);
+          const r = await transcribeAudio(audio!, session?.accessToken ?? undefined);
           if (r.error || !r.transcript.trim()) {
             setErrorMsg(r.error ?? "Couldn't hear that one. Give it another go.");
             setPhase("failed");
@@ -89,7 +91,7 @@ export default function QuizPage() {
         }
         setTranscript(text);
         setStage("grading");
-        const g = await gradeAnswer({ user_id: userId, concept_id: concept.id, transcript: text }, concept);
+        const g = await gradeAnswer({ user_id: userId, concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined);
         setGrade(g);
         setPhase("result");
       } catch {
@@ -97,7 +99,7 @@ export default function QuizPage() {
         setPhase("failed");
       }
     },
-    [concept, userId],
+    [concept, userId, session?.accessToken],
   );
 
   const handleOrbClick = useCallback(async () => {

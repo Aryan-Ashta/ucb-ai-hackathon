@@ -172,6 +172,84 @@ pytest backend/tests -v
 
 ---
 
+---
+
+## Frontend
+
+**Stack:** Next.js 14 (App Router) · React 18 · TypeScript · Tailwind CSS · NextAuth v4 · Sentry
+
+### Directory Map
+
+```
+frontend/
+  app/
+    page.tsx                    Landing/marketing page — hero, "how it works", GitHub sign-in
+    layout.tsx                  Root layout — Geist fonts, metadata, wraps with Providers
+    globals.css                 Tailwind directives + CSS vars for light/dark mode
+    global-error.tsx            Global React error boundary → Sentry
+    providers.tsx               NextAuth SessionProvider
+    dashboard/page.tsx          Main app page — PR list, concept cards, due queue (see below)
+    api/auth/[...nextauth]/
+      route.ts                  NextAuth catch-all: GitHub OAuth, stores accessToken in JWT
+  types/
+    next-auth.d.ts              Extends Session/JWT types to include accessToken
+  instrumentation.ts            Sentry init dispatcher (Node vs Edge runtime)
+  instrumentation-client.ts     Browser Sentry init with Session Replay
+  sentry.server.config.ts       Server-side Sentry (tracing, local vars)
+  sentry.edge.config.ts         Edge runtime Sentry
+  next.config.mjs               Next.js config wrapped with withSentryConfig
+  package.json                  deps: next, react, next-auth, @sentry/nextjs
+  bun.lock                      Bun lockfile
+  .env.local.example            Env var template
+```
+
+### Pages
+
+**`/` (Landing)** — Marketing page. Guest sees GitHub sign-in button; authed user sees "Go to dashboard" + sign-out. Explains the product in three steps. Shows tech stack badges. Footer credits UCB AI Hackathon 2026.
+
+**`/dashboard`** — Protected (redirects to `/` if unauthenticated). Sticky header with avatar. Two-column desktop layout:
+- Left: PRs with merged date, each expanded into Concept Cards (name, roast snippet, mastery % bar, rep count, "Quiz me" button, due-status color-coding)
+- Right (lg+ only): sticky "Due today" queue with time-relative labels ("30m overdue", "in 2h")
+- **Currently uses hardcoded `MOCK_PRS` data — backend API not connected yet**
+
+### Auth
+
+GitHub OAuth via NextAuth. Scopes: `read:user user:email repo`. The GitHub access token is stored in the JWT and forwarded to the session as `session.accessToken`.
+
+### Environment Variables
+
+```
+GITHUB_CLIENT_ID        GitHub OAuth app client ID
+GITHUB_CLIENT_SECRET    GitHub OAuth app secret
+NEXTAUTH_SECRET         Session encryption key (any random string)
+NEXTAUTH_URL            OAuth callback base URL (default: http://localhost:3000)
+
+NEXT_PUBLIC_SENTRY_DSN  Client-side Sentry DSN (safe to expose)
+SENTRY_DSN              Server-side Sentry DSN
+SENTRY_AUTH_TOKEN       Source map upload token (build only)
+```
+
+### How to Run
+
+```bash
+cd frontend
+cp .env.local.example .env.local   # fill in GitHub OAuth + NEXTAUTH_SECRET
+bun install                         # or npm install
+bun dev                             # http://localhost:3000
+```
+
+### Frontend TODOs / Stubs
+
+| Gap | Location |
+|---|---|
+| Dashboard uses mock data | `dashboard/page.tsx` — replace `MOCK_PRS` with `/api/concepts/{user_id}` fetch |
+| Quiz page not implemented | Dashboard links to `/quiz/{id}` but no route exists |
+| Voice input not wired | Deepgram env var present but no MediaRecorder UI |
+| No backend API routes | No `/api/concepts`, `/api/grade`, `/api/schedule-review` proxy routes |
+| PR sync not triggered | Auth scope includes `repo` but no webhook setup flow in UI |
+
+---
+
 ## Implementation Completeness
 
 | Task | Description | Status |
@@ -183,7 +261,8 @@ pytest backend/tests -v
 | A5 | Deepgram STT + Claude grader | ✓ Complete |
 | A6 | Poke calendar integration | ✓ Complete (URL pending confirmation) |
 | A7 | Browserbase enrichment (P1) | ✓ Complete (URL pending confirmation) |
-| A8 | Frontend / voice UI | Not in this repo |
+| A8 | Frontend landing + dashboard UI | ✓ Complete (mock data; backend not connected) |
+| — | Frontend ↔ backend integration | ✗ Not started — dashboard still uses hardcoded data |
 
 ---
 

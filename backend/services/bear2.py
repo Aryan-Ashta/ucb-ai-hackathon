@@ -28,13 +28,17 @@ async def compress_diff(raw_diff: str) -> str:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "text": raw_diff,
-                    "mode": "accuracy",  # NOT "aggressive" — preserves code semantics
+                    "model": "bear-2",
+                    "input": raw_diff,
                 },
                 timeout=10.0,
             )
             response.raise_for_status()
-            compressed = response.json()["compressed_text"]
+            data = response.json()
+            compressed = data["output"]
+            # Use the API's BPE-based counts if available, else heuristic.
+            raw_tokens = data.get("original_input_tokens") or raw_tokens
+            compressed_tokens = data.get("output_tokens") or compressed_tokens
     except Exception as e:
         sentry_sdk.capture_exception(e)
         sentry_sdk.add_breadcrumb(
