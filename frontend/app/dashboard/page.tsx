@@ -5,37 +5,43 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { getMockPRs, type DashboardPR } from "@/lib/mock";
 import type { Concept } from "@/lib/types";
+import { USING_MOCK } from "@/lib/api";
 
-// Single source of truth: the same concept bank the quiz flow reads, grouped by
-// PR. Every "Quiz me" link therefore resolves to a real /quiz/[id].
 type PR = DashboardPR;
 const MOCK_PRS: PR[] = getMockPRs();
 
-// --- Helpers ---
+// --- Time helpers ---
 
-const now = Date.now();
-const mins = (n: number) => n * 60 * 1000;
-const hours = (n: number) => n * 60 * mins(1);
-const days = (n: number) => n * 24 * hours(1);
+const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const MIN = 60 * 1000;
 
 function getDueStatus(nextReview: string): "overdue" | "today" | "upcoming" {
-  const diff = new Date(nextReview).getTime() - now;
+  const diff = new Date(nextReview).getTime() - Date.now();
   if (diff < 0) return "overdue";
-  if (diff < days(1)) return "today";
+  if (diff < DAY) return "today";
   return "upcoming";
 }
 
-function formatNextReview(nextReview: string): string {
-  const diff = new Date(nextReview).getTime() - now;
+function formatDue(nextReview: string): string {
+  const diff = new Date(nextReview).getTime() - Date.now();
   if (diff < 0) {
     const ago = Math.abs(diff);
-    if (ago < hours(1)) return `${Math.floor(ago / mins(1))}m overdue`;
-    if (ago < days(1)) return `${Math.floor(ago / hours(1))}h overdue`;
-    return `${Math.floor(ago / days(1))}d overdue`;
+    if (ago < HOUR) return `${Math.floor(ago / MIN)}m overdue`;
+    if (ago < DAY) return `${Math.floor(ago / HOUR)}h overdue`;
+    return `${Math.floor(ago / DAY)}d overdue`;
   }
-  if (diff < hours(1)) return `in ${Math.floor(diff / mins(1))}m`;
-  if (diff < days(1)) return `in ${Math.floor(diff / hours(1))}h`;
-  return `in ${Math.floor(diff / days(1))}d`;
+  if (diff < HOUR) return `in ${Math.floor(diff / MIN)}m`;
+  if (diff < DAY) return `in ${Math.floor(diff / HOUR)}h`;
+  return `in ${Math.floor(diff / DAY)}d`;
+}
+
+function mergedAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < HOUR) return "just now";
+  if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
+  const d = Math.floor(diff / DAY);
+  return d === 1 ? "yesterday" : `${d}d ago`;
 }
 
 function masteryPct(interval: number): number {
@@ -44,125 +50,121 @@ function masteryPct(interval: number): number {
 
 // --- Components ---
 
-function DueQueueItem({ concept }: { concept: Concept & { prTitle: string } }) {
+/**
+ * Due-queue card — styled like a git diff hunk.
+ * Left accent bar: coral = overdue, marigold = due today.
+ * Everything else is quiet so the accent reads clearly.
+ */
+function DueCard({ concept }: { concept: Concept & { prTitle: string } }) {
   const status = getDueStatus(concept.next_review);
+  const isOverdue = status === "overdue";
+
   return (
-    <div
-      className={`flex items-center justify-between p-3 rounded-xl border text-sm ${
-        status === "overdue"
-          ? "bg-red-50 border-red-200"
-          : "bg-yellow-50 border-yellow-200"
+    <a
+      href={`/quiz/${concept.id}`}
+      className={`group flex items-center gap-4 rounded-xl bg-surface-1 border border-line border-l-2 px-4 py-3.5 hover:bg-surface-2 transition-colors ${
+        isOverdue ? "border-l-coral" : "border-l-marigold"
       }`}
     >
-      <div className="min-w-0">
-        <p className="font-semibold text-gray-900 truncate">{concept.concept}</p>
-        <p className="text-xs text-gray-500 truncate">{concept.prTitle}</p>
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-ink group-hover:text-marigold transition-colors truncate">
+          {concept.concept}
+        </p>
+        <p className="font-mono text-[11px] text-ink-faint truncate mt-0.5">
+          {concept.repo}#{concept.pr_number} · {concept.prTitle}
+        </p>
       </div>
-      <div className="flex items-center gap-2 ml-3 shrink-0">
+      <div className="flex items-center gap-3 shrink-0">
         <span
-          className={`text-xs font-medium ${
-            status === "overdue" ? "text-red-600" : "text-yellow-700"
+          className={`font-mono text-xs tabular-nums ${
+            isOverdue ? "text-coral" : "text-marigold"
           }`}
         >
-          {formatNextReview(concept.next_review)}
+          {formatDue(concept.next_review)}
         </span>
-        <a
-          href={`/quiz/${concept.id}`}
-          className="p-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white transition"
-          title="Start quiz"
-        >
-          🎤
-        </a>
+        <span className="text-ink-faint group-hover:text-ink transition-colors text-sm">→</span>
       </div>
-    </div>
+    </a>
   );
 }
 
-function ConceptCard({ concept }: { concept: Concept }) {
+/** Compact concept row inside a PR block. Mastery bar + next-review stamp. */
+function ConceptRow({ concept }: { concept: Concept }) {
   const status = getDueStatus(concept.next_review);
   const pct = masteryPct(concept.interval);
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-bold text-gray-900">{concept.concept}</h3>
-        <span
-          className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${
-            status === "overdue"
-              ? "bg-red-100 text-red-700"
-              : status === "today"
-              ? "bg-yellow-100 text-yellow-700"
-              : "bg-gray-100 text-gray-500"
-          }`}
-        >
-          {formatNextReview(concept.next_review)}
-        </span>
-      </div>
-
-      <p className="text-sm text-gray-600 italic line-clamp-2">
-        &ldquo;{concept.roast_text}&rdquo;
-      </p>
-
-      {/* Mastery bar */}
-      <div>
-        <div className="flex justify-between text-xs text-gray-400 mb-1">
-          <span>Mastery</span>
-          <span>{pct}%</span>
-        </div>
-        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-yellow-400 rounded-full transition-all"
-            style={{ width: `${pct}%` }}
-          />
+    <a
+      href={`/quiz/${concept.id}`}
+      className="group flex items-center gap-3 rounded-lg bg-surface-2 hover:bg-line border border-line px-3 py-2.5 transition-colors"
+    >
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-ink group-hover:text-marigold transition-colors truncate">
+          {concept.concept}
+        </p>
+        {/* Mastery bar */}
+        <div className="flex items-center gap-2 mt-1.5">
+          <div className="h-[3px] w-20 rounded-full bg-canvas overflow-hidden">
+            <div
+              className="h-full rounded-full bg-marigold transition-all duration-700"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="font-mono text-[10px] text-ink-faint tabular-nums">{pct}%</span>
         </div>
       </div>
+      <span
+        className={`font-mono text-[11px] shrink-0 tabular-nums ${
+          status === "overdue"
+            ? "text-coral"
+            : status === "today"
+            ? "text-marigold"
+            : "text-ink-faint"
+        }`}
+      >
+        {formatDue(concept.next_review)}
+      </span>
+    </a>
+  );
+}
 
-      <div className="flex items-center justify-between pt-1">
-        <span className="text-xs text-gray-400">
-          {concept.repetitions === 0
-            ? "Never reviewed"
-            : `${concept.repetitions} review${concept.repetitions > 1 ? "s" : ""}`}
+/** PR block: compact header + concept rows. */
+function PRBlock({ pr }: { pr: PR }) {
+  return (
+    <div className="rounded-2xl bg-surface-1 border border-line overflow-hidden">
+      {/* PR header */}
+      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-line">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[11px] text-ink-faint mb-0.5">
+            {pr.repo}
+            <span className="text-ink-dim"> #{pr.pr_number}</span>
+            {" · "}merged {mergedAgo(pr.merged_at)}
+          </p>
+          <h2 className="font-semibold text-ink text-sm truncate">{pr.title}</h2>
+        </div>
+        <span className="shrink-0 font-mono text-[11px] bg-surface-2 text-ink-faint px-2 py-0.5 rounded border border-line">
+          {pr.concepts.length}c
         </span>
-        <a
-          href={`/quiz/${concept.id}`}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium transition"
-        >
-          🎤 <span>Quiz me</span>
-        </a>
+      </div>
+      {/* Concept rows */}
+      <div className="p-3 flex flex-col gap-2">
+        {pr.concepts.map((c) => (
+          <ConceptRow key={c.id} concept={c} />
+        ))}
       </div>
     </div>
   );
 }
 
-function PRSection({ pr }: { pr: PR }) {
-  const mergedDate = new Date(pr.merged_at).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-
+/** Section divider: mono eyebrow + hairline rule. */
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <section>
-      <div className="flex items-center gap-3 mb-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-gray-400">
-              {pr.repo}#{pr.pr_number}
-            </span>
-            <span className="text-xs text-gray-400">·</span>
-            <span className="text-xs text-gray-400">{mergedDate}</span>
-          </div>
-          <h2 className="font-semibold text-gray-900 truncate">{pr.title}</h2>
-        </div>
-        <span className="shrink-0 text-xs bg-purple-100 text-purple-700 font-medium px-2 py-0.5 rounded-full">
-          {pr.concepts.length} concept{pr.concepts.length !== 1 ? "s" : ""}
-        </span>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {pr.concepts.map((c) => (
-          <ConceptCard key={c.id} concept={c} />
-        ))}
-      </div>
-    </section>
+    <div className="flex items-center gap-3 mb-4">
+      <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-faint whitespace-nowrap">
+        {children}
+      </span>
+      <div className="flex-1 h-px bg-line" />
+    </div>
   );
 }
 
@@ -178,90 +180,111 @@ export default function Dashboard() {
 
   if (status === "loading" || !session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-yellow-50">
-        <span className="text-4xl animate-bounce">🦆</span>
+      <div className="min-h-screen bg-canvas flex items-center justify-center">
+        <span className="font-mono text-sm text-ink-faint animate-pulse">loading…</span>
       </div>
     );
   }
 
-  // Build due queue: all concepts due now or today, sorted overdue-first then by timestamp
+  // Due queue: overdue + today, most-overdue first
   const dueItems = MOCK_PRS.flatMap((pr) =>
     pr.concepts
       .filter((c) => getDueStatus(c.next_review) !== "upcoming")
       .map((c) => ({ ...c, prTitle: pr.title }))
-  ).sort(
-    (a, b) => new Date(a.next_review).getTime() - new Date(b.next_review).getTime()
-  );
+  ).sort((a, b) => new Date(a.next_review).getTime() - new Date(b.next_review).getTime());
+
+  const overdueCount = dueItems.filter((c) => getDueStatus(c.next_review) === "overdue").length;
+  const totalConcepts = MOCK_PRS.reduce((n, pr) => n + pr.concepts.length, 0);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-canvas text-ink">
       {/* Header */}
-      <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">🦆</span>
-          <span className="font-bold text-gray-900">VibeSchool</span>
-        </div>
-        <div className="flex items-center gap-3">
+      <header className="sticky top-0 z-10 bg-canvas/90 backdrop-blur border-b border-line">
+        <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
+          <span className="font-display text-lg font-bold tracking-tight">VibeSchool</span>
+          <div className="flex-1" />
           {session.user?.image && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={session.user.image}
               alt={session.user.name ?? "avatar"}
-              className="w-7 h-7 rounded-full"
+              className="w-7 h-7 rounded-full border border-line"
             />
           )}
-          <span className="text-sm text-gray-600 hidden sm:block">
-            {session.user?.name}
-          </span>
+          <span className="text-sm text-ink-dim hidden sm:block">{session.user?.name}</span>
           <button
             onClick={() => signOut({ callbackUrl: "/" })}
-            className="text-xs text-gray-400 hover:text-gray-600 transition"
+            className="font-mono text-xs text-ink-faint hover:text-ink-dim transition-colors"
           >
-            Sign out
+            sign out
           </button>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 py-8 flex gap-6">
-        {/* Main — PR list */}
-        <main className="flex-1 min-w-0 flex flex-col gap-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Your PRs</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {MOCK_PRS.length} PRs · {MOCK_PRS.reduce((n, pr) => n + pr.concepts.length, 0)} concepts tracked
-            </p>
+      <div className="max-w-3xl mx-auto px-5 py-10 flex flex-col gap-12">
+        {/* Hero — the one number that matters */}
+        <div className="animate-rise">
+          <div className="flex items-end gap-3 mb-3">
+            <span className="font-display text-[4.5rem] leading-none font-extrabold text-marigold tabular-nums tracking-tightest">
+              {dueItems.length}
+            </span>
+            <span className="font-display text-2xl font-bold text-ink-dim pb-2">
+              {dueItems.length === 1 ? "concept to review" : "concepts to review"}
+            </span>
           </div>
-          {MOCK_PRS.map((pr) => (
-            <PRSection key={pr.pr_number} pr={pr} />
-          ))}
-        </main>
-
-        {/* Sidebar — Due queue */}
-        <aside className="w-72 shrink-0 hidden lg:block">
-          <div className="sticky top-20">
-            <h2 className="font-bold text-gray-900 mb-3">
-              Due today
-              {dueItems.length > 0 && (
-                <span className="ml-2 text-xs bg-red-100 text-red-600 font-semibold px-2 py-0.5 rounded-full">
-                  {dueItems.length}
-                </span>
-              )}
-            </h2>
-            {dueItems.length === 0 ? (
-              <div className="text-center py-10 text-sm text-gray-400">
-                <div className="text-3xl mb-2">🦆</div>
-                All caught up!
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {dueItems.map((c) => (
-                  <DueQueueItem key={c.id} concept={c} />
-                ))}
-              </div>
+          {/* Stat chips */}
+          <div className="flex flex-wrap gap-2">
+            {overdueCount > 0 && (
+              <span className="font-mono text-xs bg-coral/10 border border-coral/25 text-coral px-2.5 py-1 rounded-lg">
+                {overdueCount} overdue
+              </span>
             )}
+            <span className="font-mono text-xs bg-surface-2 border border-line text-ink-dim px-2.5 py-1 rounded-lg">
+              {totalConcepts} concepts tracked
+            </span>
+            <span className="font-mono text-xs bg-surface-2 border border-line text-ink-dim px-2.5 py-1 rounded-lg">
+              {MOCK_PRS.length} PRs
+            </span>
           </div>
-        </aside>
+        </div>
+
+        {/* Due queue */}
+        <section>
+          <SectionLabel>
+            {dueItems.length > 0 ? `due now · ${dueItems.length}` : "due now"}
+          </SectionLabel>
+          {dueItems.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {dueItems.map((c) => (
+                <DueCard key={c.id} concept={c} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-surface-1 border border-line px-6 py-10 text-center">
+              <p className="font-display text-2xl font-bold text-ink mb-1">All clear.</p>
+              <p className="text-sm text-ink-dim">
+                Nothing due right now — check back later, or browse your concept bank below.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {/* All concepts, grouped by PR */}
+        <section>
+          <SectionLabel>concept bank · {totalConcepts}</SectionLabel>
+          <div className="flex flex-col gap-4">
+            {MOCK_PRS.map((pr) => (
+              <PRBlock key={pr.pr_number} pr={pr} />
+            ))}
+          </div>
+        </section>
       </div>
+
+      {USING_MOCK && (
+        <div className="pointer-events-none fixed bottom-2 right-2 font-mono text-[10px] uppercase tracking-wider text-ink-faint">
+          mock data
+        </div>
+      )}
     </div>
   );
 }
