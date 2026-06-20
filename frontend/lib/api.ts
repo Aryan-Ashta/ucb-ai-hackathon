@@ -114,4 +114,35 @@ export const api = {
 
   syncStatus: (token: string) =>
     apiFetch<SyncStatusResponse>("/api/sync/status", { accessToken: token }),
+
+  /**
+   * Upload a recorded audio blob for transcription.
+   *
+   * Bypasses `apiFetch` because (a) the body is multipart FormData, which
+   * must NOT carry a JSON Content-Type, and (b) audio/webm blobs hit
+   * Vercel's 4.5 MB serverless body cap, so we send them straight to the
+   * backend's FastAPI process.
+   */
+  transcribeAudio: async (
+    token: string,
+    blob: Blob,
+    filename = "answer.webm",
+  ): Promise<{ transcript: string; error?: string }> => {
+    const fd = new FormData();
+    fd.append("audio", blob, filename);
+    const res = await fetch(`${BACKEND}/api/transcribe`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new ApiError(
+        res.status,
+        body,
+        `API ${res.status} ${res.statusText} on POST /api/transcribe`,
+      );
+    }
+    return (await res.json()) as { transcript: string; error?: string };
+  },
 };

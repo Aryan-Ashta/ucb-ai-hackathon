@@ -5,9 +5,9 @@ import { useRouter, useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, type Concept, type GradeResult } from "@/lib/api";
 
-// Audio goes directly to the backend — Vercel serverless functions cap request
-// bodies at 4.5 MB, which audio/webm blobs exceed quickly.
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+// Audio goes directly to the backend via api.transcribeAudio, which sends the
+// NextAuth bearer token. We bypass Vercel serverless functions because they cap
+// request bodies at 4.5 MB, which audio/webm blobs exceed quickly.
 
 type Stage = "loading" | "idle" | "recording" | "grading" | "done" | "error";
 
@@ -77,11 +77,10 @@ export default function QuizPage() {
 
   async function handleGrade(blob: Blob) {
     try {
-      const fd = new FormData();
-      fd.append("audio", blob, "answer.webm");
-      const tRes = await fetch(`${BACKEND}/api/transcribe`, { method: "POST", body: fd });
-      if (!tRes.ok) throw new Error(`Transcribe failed: ${tRes.status} ${tRes.statusText}`);
-      const { transcript: t, error: tErr } = await tRes.json();
+      const { transcript: t, error: tErr } = await api.transcribeAudio(
+        session!.accessToken!,
+        blob,
+      );
       if (tErr) throw new Error(tErr);
       setTranscript(t);
 

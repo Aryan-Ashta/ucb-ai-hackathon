@@ -11,8 +11,19 @@ router = APIRouter()
 
 
 @router.post("/transcribe")
-async def transcribe(audio: UploadFile = File(...)):
-    """Accept audio/webm from a browser MediaRecorder, return the transcript."""
+async def transcribe(
+    audio: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    """
+    Accept audio/webm from a browser MediaRecorder, return the transcript.
+
+    Auth-gated: requires `Authorization: Bearer <github_access_token>`.
+    The signed-in user is resolved by `get_current_user` but the endpoint
+    itself does not need `user["id"]` (transcription is per-request, not
+    per-user); the dependency exists so unauthenticated callers cannot
+    burn the Deepgram API key.
+    """
     audio_bytes = await audio.read()
 
     if len(audio_bytes) == 0:
