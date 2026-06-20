@@ -43,6 +43,13 @@ REDIS_TLS = os.environ.get("REDIS_TLS", "").lower() in ("1", "true", "yes")
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")  # empty disables Sentry transport
 POKE_API_KEY = _require("POKE_API_KEY")
 
+# Fernet key for at-rest encryption of user OAuth tokens in Redis.
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+TOKEN_ENCRYPTION_KEY = _require("TOKEN_ENCRYPTION_KEY")
+
 # P1 — optional
 BROWSERBASE_API_KEY = os.environ.get("BROWSERBASE_API_KEY", "")
 BROWSERBASE_PROJECT_ID = os.environ.get("BROWSERBASE_PROJECT_ID", "")
+
+# GitHub API base. Overridable for GitHub Enterprise (same OAuth flow).
+GITHUB_API_BASE = os.environ.get("GITHUB_API_BASE", "https://api.github.com")
