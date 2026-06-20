@@ -19,7 +19,9 @@ def _require(key: str) -> str:
 
 
 # P0 — required for the core ingestion + quiz loop
-GITHUB_WEBHOOK_SECRET = _require("GITHUB_WEBHOOK_SECRET")
+# GITHUB_WEBHOOK_SECRET removed by the OAuth refactor (webhooks are gone).
+# GITHUB_TOKEN is still honored as a server-wide fallback for cron / scripts,
+# but the request hot path uses the per-user OAuth token from the bearer header.
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")  # optional; unauth is rate-limited
 ANTHROPIC_API_KEY = _require("ANTHROPIC_API_KEY")
 TOKEN_COMPANY_API_KEY = _require("TOKEN_COMPANY_API_KEY")

@@ -55,7 +55,7 @@ async def extract_concepts_and_cache(
     3. Cache results in Redis
     Returns a list of QuizConcept objects.
     """
-    with sentry_sdk.start_span(op="claude.extract", description="Concept extraction"):
+    with sentry_sdk.start_span(op="claude.extract", name="Concept extraction"):
         compressed_diff = await compress_diff(raw_diff)
 
         try:
