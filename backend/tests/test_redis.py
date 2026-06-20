@@ -161,3 +161,47 @@ async def test_get_redis_returns_same_instance():
     r1 = await get_redis()
     r2 = await get_redis()
     assert r1 is r2
+
+
+
+async def test_mark_pr_processed_and_list_roundtrip():
+    from backend.services.redis_client import mark_pr_processed, list_processed_prs
+    await mark_pr_processed(
+        "u1", repo="octocat/hello", pr_number=42, merged_at="2026-06-01T00:00:00Z"
+    )
+    prs = await list_processed_prs("u1")
+    assert len(prs) == 1
+    assert prs[0]["pr_number"] == 42
+    assert prs[0]["repo"] == "octocat/hello"
+
+
+async def test_get_last_sync_roundtrip():
+    from backend.services.redis_client import get_last_sync, set_last_sync
+    assert await get_last_sync("u1") is None
+    await set_last_sync("u1", 1_700_000_000)
+    assert await get_last_sync("u1") == 1_700_000_000
+
+
+async def test_sync_inflight_lock():
+    from backend.services.redis_client import (
+        acquire_sync_lock,
+        release_sync_lock,
+    )
+    assert await acquire_sync_lock("u1") is True
+    assert await acquire_sync_lock("u1") is False  # already held
+    await release_sync_lock("u1")
+    assert await acquire_sync_lock("u1") is True
+    await release_sync_lock("u1")
+
+
+async def test_user_repos_roundtrip():
+    from backend.services.redis_client import (
+        add_user_repo,
+        list_user_repos_cached,
+    )
+    await add_user_repo("u1", "octocat/hello")
+    await add_user_repo("u1", "octocat/world")
+    assert set(await list_user_repos_cached("u1")) == {
+        "octocat/hello",
+        "octocat/world",
+    }
