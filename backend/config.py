@@ -69,5 +69,15 @@ TOKEN_ENCRYPTION_KEY = _require("TOKEN_ENCRYPTION_KEY")
 BROWSERBASE_API_KEY = os.environ.get("BROWSERBASE_API_KEY", "")
 BROWSERBASE_PROJECT_ID = os.environ.get("BROWSERBASE_PROJECT_ID", "")
 
+# Voyage AI embeddings (used by the vector_store RAG layer).
+# Empty VOYAGE_API_KEY → vector_store falls back to a deterministic
+# hash-based pseudo-embedding so tests + dev runs work without an
+# external key. The integration is wired end-to-end either way; only
+# real semantic recall requires a live API key.
+VOYAGE_API_KEY = os.environ.get("VOYAGE_API_KEY", "")
+VOYAGE_BASE_URL = os.environ.get("VOYAGE_BASE_URL", "https://api.voyageai.com")
+VOYAGE_MODEL = os.environ.get("VOYAGE_MODEL", "voyage-3")
+EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
+
 # GitHub API base. Overridable for GitHub Enterprise (same OAuth flow).
 GITHUB_API_BASE = os.environ.get("GITHUB_API_BASE", "https://api.github.com")
