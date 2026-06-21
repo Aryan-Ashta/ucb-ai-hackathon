@@ -55,6 +55,30 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+def _parse_json_envelope(raw_text: str, *, breadcrumb_label: str) -> object | None:
+    """Strip Claude's occasional markdown fences and JSON-decode the result.
+
+    On parse failure: capture the exception to Sentry, emit a breadcrumb
+    tagged with `breadcrumb_label` so the team can tell which call site
+    produced the malformed response, and return None so the caller can
+    pick its own fallback (extraction returns [], grading returns a
+    generic fail).
+
+    Pure function (no I/O beyond Sentry SDK calls) — testable in isolation.
+    """
+    raw_response = _strip_fences(raw_text.strip())
+    try:
+        return json.loads(raw_response)
+    except json.JSONDecodeError as e:
+        sentry_sdk.capture_exception(e)
+        sentry_sdk.add_breadcrumb(
+            category="claude",
+            message=f"JSON parse failed [{breadcrumb_label}]. Raw response: {raw_response[:200]}",
+            level="error",
+        )
+        return None
+
+
 async def extract_concepts_and_cache(
     raw_diff: str, user_id: str, source_id: int | str,
     repo: str = "", pr_title: str = "",
@@ -91,21 +115,15 @@ async def extract_concepts_and_cache(
             sentry_sdk.capture_exception(e)
             raise
 
-        raw_response = _strip_fences(message.content[0].text.strip())
-
-        try:
-            concepts_data = json.loads(raw_response)
-        except json.JSONDecodeError as e:
-            sentry_sdk.capture_exception(e)
-            sentry_sdk.add_breadcrumb(
-                category="claude",
-                message=f"JSON parse failed. Raw response: {raw_response[:200]}",
-                level="error",
-            )
+        parsed = _parse_json_envelope(message.content[0].text, breadcrumb_label="extract")
+        if not isinstance(parsed, list):
+            # Empty list (trivially parseable but no concepts) is also fine;
+            # this branch only catches JSON failures (parsed is None) and
+            # unexpected shapes (a JSON object instead of a list).
             return []
 
         concepts = []
-        for item in concepts_data:
+        for item in parsed:
             slug = item["concept"].lower().replace(" ", "_")
             concepts.append(
                 QuizConcept(
@@ -162,18 +180,11 @@ Respond ONLY with valid JSON, no markdown fences:
         messages=[{"role": "user", "content": grading_prompt}],
     )
 
-    raw_response = _strip_fences(message.content[0].text.strip())
-    try:
-        result = json.loads(raw_response)
-    except json.JSONDecodeError as e:
-        sentry_sdk.capture_exception(e)
-        sentry_sdk.add_breadcrumb(
-            category="claude",
-            message=f"JSON parse failed. Raw response: {raw_response[:200]}",
-            level="error",
-        )
+    parsed = _parse_json_envelope(message.content[0].text, breadcrumb_label="grade")
+    if not isinstance(parsed, dict):
         return {"passed": False, "quality": 0, "explanation": "Grading failed — please try again."}
 
+    result = parsed
     q = max(0, min(5, int(result["quality"])))
     result["quality"] = q
     result["passed"] = bool(result.get("passed", q >= 3))
