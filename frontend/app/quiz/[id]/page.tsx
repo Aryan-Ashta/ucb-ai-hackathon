@@ -221,6 +221,10 @@ export default function QuizPage() {
               <button
                 onClick={() => {
                   rec.reset();
+                  setTranscript("");
+                  setGrade(null);
+                  setErrorMsg(null);
+                  setTyped("");
                   setPhase("intro");
                 }}
                 className="inline-flex items-center gap-2 rounded-xl bg-surface-2 px-4 py-2.5 text-sm font-medium hover:bg-line transition"
