@@ -3,15 +3,21 @@ import hashlib
 import time
 from typing import Annotated
 
+import cachetools
 import httpx
+import sentry_sdk
 from fastapi import Header, HTTPException
 
 from backend.config import GITHUB_API_BASE
 from backend.services.token_store import store_token
 
-# In-process cache: token-hash -> (user_id, login, expires_at).
-# Keeps the GitHub /user hit off the hot path; expires after 60s.
-_USER_CACHE: dict[str, tuple[str, str, float]] = {}
+# P1-B2: In-process cache for token → user identity, with both a TTL and a
+# max size. The previous plain dict grew unbounded (every distinct token
+# stayed forever). cachetools.TTLCache evicts on read when an entry has
+# expired AND evicts LRU entries when the cache is full.
+_USER_CACHE: cachetools.TTLCache[str, tuple[str, str, float]] = cachetools.TTLCache(
+    maxsize=10_000, ttl=60
+)
 _USER_CACHE_TTL_SECONDS: int = 60
 
 
@@ -24,7 +30,7 @@ async def get_current_user(authorization: Annotated[str | None, Header()] = None
     Validate the GitHub OAuth access token in the Authorization header.
 
     1. Parse the `Bearer <token>` header.
-    2. Check the in-process cache (60s TTL).
+    2. Check the in-process cache (60s TTL, bounded to 10k entries — P1-B2).
     3. On miss, call `GET {GITHUB_API_BASE}/user` with the token.
     4. On success, encrypt and persist the token in Redis via `token_store`.
     5. Return `{"id": str(github_id), "login": login, "token": raw_token}`.
@@ -65,12 +71,20 @@ async def get_current_user(authorization: Annotated[str | None, Header()] = None
     user_id = str(user["id"])
     login = user["login"]
 
-    # Persist the encrypted token for future background work.
+    # P1-B3: A Redis blip should not block an otherwise-valid request, but
+    # it MUST be visible. Capture to Sentry at warning level + emit a
+    # breadcrumb so the team sees "this user just authed successfully but
+    # we couldn't persist the token" instead of failing silently.
     try:
         await store_token(user_id, token)
-    except Exception:
-        # A Redis blip should not block an otherwise-valid request.
-        pass
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+        sentry_sdk.add_breadcrumb(
+            category="auth",
+            message="token_persistence_failed",
+            level="warning",
+            data={"user_id": user_id, "error_class": type(e).__name__},
+        )
 
     _USER_CACHE[cache_key] = (user_id, login, now + _USER_CACHE_TTL_SECONDS)
     return {"id": user_id, "login": login, "token": token}

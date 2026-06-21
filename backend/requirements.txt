@@ -7,3 +7,4 @@ redis
 sentry-sdk
 pydantic
 python-multipart
+cachetools
