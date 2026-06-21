@@ -1,4 +1,5 @@
 """Redis + SM-2 integration tests, backed by fakeredis (see conftest.py)."""
+import json
 import time
 
 import pytest
@@ -205,3 +206,192 @@ async def test_user_repos_roundtrip():
         "octocat/hello",
         "octocat/world",
     }
+
+
+# ── Gap-analysis coverage: documented-but-untested Redis behaviors ─────────
+
+
+async def test_get_due_concepts_sorted_by_urgency():
+    """Concepts further overdue must appear first (sorted by score ascending)."""
+    c_recent = _concept(slug="recent")
+    c_overdue = _concept(slug="overdue")
+    await cache_quiz_content("u1", c_recent)
+    await cache_quiz_content("u1", c_overdue)
+
+    r = await get_redis()
+    now = int(time.time())
+    await r.zadd("due:u1", {c_recent.concept_id: now - 1})      # very recently due
+    await r.zadd("due:u1", {c_overdue.concept_id: now - 100})   # overdue 100s ago
+
+    due = await get_due_concepts("u1")
+    assert len(due) == 2
+    # More-overdue concept must come first.
+    assert due[0]["concept_id"] == c_overdue.concept_id
+    assert due[1]["concept_id"] == c_recent.concept_id
+
+
+async def test_orphan_in_due_set_is_silently_skipped():
+    """If a concept_id lives in the due set without quiz/state keys, drop it silently.
+
+    Pins the current behavior of redis_client.get_due_concepts which checks
+    `if quiz_data and state_data` and skips members with missing data. If a
+    future change makes this fail loud, this test will fail and force a
+    deliberate decision.
+    """
+    r = await get_redis()
+    await r.zadd("due:u1", {"u1:999:orphan": int(time.time()) - 10})
+
+    due = await get_due_concepts("u1")
+    assert due == []
+
+
+async def test_mark_pr_processed_sets_seven_day_ttl():
+    from backend.services.redis_client import mark_pr_processed
+    await mark_pr_processed(
+        "u1", repo="octocat/hello", pr_number=42, merged_at="2026-06-01T00:00:00Z"
+    )
+    r = await get_redis()
+    ttl = await r.ttl("user:u1:prs")
+    assert ttl > 0, f"TTL must be positive, got {ttl}"
+    assert ttl <= REDIS_TTL_SECONDS, f"TTL must be <= REDIS_TTL_SECONDS ({REDIS_TTL_SECONDS}), got {ttl}"
+    assert ttl > SIX_DAYS, f"TTL must be > 6 days ({SIX_DAYS}s), got {ttl}s"
+
+
+async def test_set_last_sync_sets_seven_day_ttl():
+    from backend.services.redis_client import set_last_sync
+    await set_last_sync("u1", 1_700_000_000)
+    r = await get_redis()
+    ttl = await r.ttl("user:u1:last_sync")
+    assert ttl > 0, f"TTL must be positive, got {ttl}"
+    assert ttl <= REDIS_TTL_SECONDS, f"TTL must be <= REDIS_TTL_SECONDS, got {ttl}"
+    assert ttl > SIX_DAYS, f"TTL must be > 6 days ({SIX_DAYS}s), got {ttl}s"
+
+
+async def test_add_user_repo_sets_seven_day_ttl():
+    from backend.services.redis_client import add_user_repo
+    await add_user_repo("u1", "octocat/hello")
+    r = await get_redis()
+    ttl = await r.ttl("user:u1:repos")
+    assert ttl > 0, f"TTL must be positive, got {ttl}"
+    assert ttl <= REDIS_TTL_SECONDS, f"TTL must be <= REDIS_TTL_SECONDS, got {ttl}"
+    assert ttl > SIX_DAYS, f"TTL must be > 6 days ({SIX_DAYS}s), got {ttl}s"
+
+
+async def test_due_set_has_seven_day_ttl():
+    """The due:{user_id} sorted set must expire with the same 7-day window."""
+    c = _concept()
+    await cache_quiz_content("u1", c)
+    r = await get_redis()
+    ttl = await r.ttl("due:u1")
+    assert ttl > 0, f"due: TTL must be positive, got {ttl}"
+    assert ttl <= REDIS_TTL_SECONDS, f"due: TTL must be <= REDIS_TTL_SECONDS, got {ttl}"
+    assert ttl > SIX_DAYS, f"due: TTL must be > 6 days ({SIX_DAYS}s), got {ttl}s"
+
+
+async def test_sync_lock_ttl_set():
+    """acquire_sync_lock must apply the requested TTL to the sync_inflight key."""
+    from backend.services.redis_client import acquire_sync_lock, release_sync_lock
+    try:
+        assert await acquire_sync_lock("u1", ttl=60) is True
+        r = await get_redis()
+        ttl = await r.ttl("user:u1:sync_inflight")
+        assert 0 < ttl <= 60, f"Sync-lock TTL must be in (0, 60], got {ttl}"
+    finally:
+        await release_sync_lock("u1")
+
+
+async def test_release_sync_lock_idempotent_on_missing():
+    """release_sync_lock must not raise when no lock is held."""
+    from backend.services.redis_client import release_sync_lock
+    # No lock was acquired — release must be a no-op rather than throwing.
+    await release_sync_lock("u1")
+
+
+async def test_cache_quiz_content_overwrites_existing_state():
+    """Re-caching a concept must reset SM-2 state back to initial values.
+
+    Today's behavior resets state to repetitions=0 / ease_factor=2.5, which is
+    masked in production by mark_pr_processed skipping already-ingested PRs.
+    """
+    c = _concept()
+    await cache_quiz_content("u1", c)
+
+    # Advance the schedule.
+    await update_sm2_state("u1", c.concept_id, quality=5)
+    r = await get_redis()
+    advanced = await r.get(f"concept:u1:{c.concept_id}:state")
+    assert advanced is not None
+    assert json.loads(advanced)["repetitions"] == 1
+
+    # Re-cache: state must be back to initial.
+    await cache_quiz_content("u1", c)
+    reset = await r.get(f"concept:u1:{c.concept_id}:state")
+    assert reset is not None
+    state = json.loads(reset)
+    assert state["repetitions"] == 0
+    assert state["ease_factor"] == 2.5
+
+
+async def test_sm2_state_preserved_across_update_under_normal_conditions():
+    """update_sm2_state must advance the schedule without touching quiz content."""
+    c = _concept()
+    await cache_quiz_content("u1", c)
+
+    quiz_before = await get_quiz_content("u1", c.concept_id)
+    assert quiz_before is not None
+
+    await update_sm2_state("u1", c.concept_id, quality=5)
+
+    # Quiz content must be byte-identical (re-cached JSON encodes deterministically).
+    quiz_after = await get_quiz_content("u1", c.concept_id)
+    assert quiz_after == quiz_before
+
+    # But state must have advanced: repetitions incremented from 0 → 1.
+    r = await get_redis()
+    state_raw = await r.get(f"concept:u1:{c.concept_id}:state")
+    assert state_raw is not None
+    assert json.loads(state_raw)["repetitions"] == 1
+
+
+async def test_connect_kwargs_match_spec():
+    """Guard against accidental drop of any of the five documented connection kwargs.
+
+    These are load-bearing for resilience (timeouts + health checks + retry +
+    pool cap). A future refactor must not silently remove them.
+    """
+    import inspect
+
+    source = inspect.getsource(redis_client_module)
+    for needle in (
+        "socket_connect_timeout=5",
+        "socket_timeout=5",
+        "health_check_interval=30",
+        "retry_on_timeout=True",
+        "max_connections=50",
+    ):
+        assert needle in source, (
+            f"_CONNECT_KWARGS is missing required kwarg {needle!r} — "
+            "refactor likely regressed the redis resilience config"
+        )
+
+
+@pytest.mark.xfail(
+    reason="P2: production should clamp quality to [0, 5] inside update_sm2_state; "
+    "today it forwards the value verbatim to sm2_next.",
+    strict=False,
+)
+async def test_update_sm2_state_quality_clamps_via_caller():
+    """`update_sm2_state` must reject out-of-range quality values.
+
+    Today the production function forwards quality verbatim to sm2_next, which
+    silently absorbs nonsense values via the 1.3 ease-factor floor. The
+    contract we want: callers should not be able to write garbage state.
+
+    Marked xfail so the gap is documented and the test stays in the suite.
+    When production adds clamping, the strict=False xfail will turn green
+    automatically and the test becomes a real regression guard.
+    """
+    c = _concept()
+    await cache_quiz_content("u1", c)
+    with pytest.raises((ValueError, AssertionError)):
+        await update_sm2_state("u1", c.concept_id, quality=99)

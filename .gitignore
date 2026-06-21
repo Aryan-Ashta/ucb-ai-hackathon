@@ -11,6 +11,7 @@ backend/.env
 .env
 backend/.env
 backend/env
+frontend/.env
 
 # Test artifacts
 .coverage
