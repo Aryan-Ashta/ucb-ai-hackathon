@@ -6,10 +6,21 @@ import styles from "./ConceptGraph.module.css";
 
 const VIEW_W = 820;
 const VIEW_H = 520;
+/** Characters before the label is truncated with an ellipsis. */
+const MAX_LABEL_CHARS = 21;
+/** px per monospace character at 13.5 px font-size (measured). */
+const CH_PX = 8.1;
+/** Left padding: dot (19) + gap to text (12). Right padding: 16. */
+const BOX_PADDING = 19 + 12 + 16;
 
-/** Estimated rect width from label length (matches the design). */
+function truncateLabel(label: string): string {
+  return label.length > MAX_LABEL_CHARS ? label.slice(0, MAX_LABEL_CHARS - 1) + "…" : label;
+}
+
+/** Exact box width for a (possibly truncated) label. */
 function widthOf(label: string) {
-  return Math.max(112, label.length * 7.7 + 52);
+  const chars = Math.min(label.length, MAX_LABEL_CHARS);
+  return Math.max(100, chars * CH_PX + BOX_PADDING);
 }
 
 export interface ConceptGraphProps {
@@ -24,17 +35,19 @@ export interface ConceptGraphProps {
 export function ConceptGraph({ width = 800, nodes: inputNodes, edges: inputEdges, selectedId, onSelect }: ConceptGraphProps) {
   const nodes = inputNodes.map((c) => {
     const s = STATE_STYLE[c.state];
-    const w = widthOf(c.label);
+    const displayLabel = truncateLabel(c.label);
+    const w = widthOf(displayLabel);
     const rx0 = c.x - w / 2;
     const dotX = rx0 + 19;
     return {
       ...c,
+      displayLabel,
       style: s,
       w,
       rx0,
       ry0: c.y - 18,
       dotX,
-      textX: dotX + 13,
+      textX: dotX + 12,
       selected: c.id === selectedId,
       isMastered: c.state === "mastered",
       isDue: c.state === "due",
@@ -48,15 +61,34 @@ export function ConceptGraph({ width = 800, nodes: inputNodes, edges: inputEdges
     const na = byId[a];
     const nb = byId[b];
     if (!na || !nb) return null;
-    const sxR = na.x + na.w / 2;
-    const txL = nb.x - nb.w / 2;
     const connected = a === selectedId || b === selectedId;
+
+    let d: string;
+    const sameCol = Math.abs(na.x - nb.x) < 4;
+    if (sameCol) {
+      // Vertical connection: bottom-center of source → top-center of target.
+      // Offset control points laterally to create a smooth S-curve.
+      const sx = na.x;
+      const sy = na.ry0 + 36; // bottom of source node
+      const tx = nb.x;
+      const ty = nb.ry0;      // top of target node
+      const gap = ty - sy;
+      const side = 44;
+      d = `M${sx},${sy} C${sx + side},${sy + gap * 0.42} ${tx - side},${ty - gap * 0.42} ${tx},${ty}`;
+    } else {
+      // Horizontal connection: right edge of source → left edge of target.
+      const sxR = na.x + na.w / 2;
+      const txL = nb.x - nb.w / 2;
+      const cp = Math.max(56, Math.abs(txL - sxR) * 0.48);
+      d = `M${sxR},${na.y} C${sxR + cp},${na.y} ${txL - cp},${nb.y} ${txL},${nb.y}`;
+    }
+
     return {
       key: `${a}-${b}`,
-      d: `M${sxR} ${na.y} C ${sxR + 46} ${na.y}, ${txL - 46} ${nb.y}, ${txL} ${nb.y}`,
+      d,
       stroke: connected ? "#ffb627" : "#3a3128",
       width: connected ? 2.5 : 1.5,
-      opacity: connected ? 0.95 : 0.45,
+      opacity: connected ? 0.95 : 0.4,
     };
   }).filter(Boolean) as Array<{
     key: string;
@@ -99,8 +131,8 @@ export function ConceptGraph({ width = 800, nodes: inputNodes, edges: inputEdges
               strokeWidth={n.isProgress ? 2 : 0}
             />
           )}
-          <text x={n.textX} y={n.y + 4.7} fontFamily="var(--font-geist-mono), ui-monospace, monospace" fontSize={14} fontWeight={500} fill={n.style.label}>
-            {n.label}
+          <text x={n.textX} y={n.y + 4.5} fontFamily="var(--font-geist-mono), ui-monospace, monospace" fontSize={13.5} fontWeight={500} fill={n.style.label}>
+            {n.displayLabel}
           </text>
         </g>
       ))}
