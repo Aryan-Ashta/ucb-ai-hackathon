@@ -301,11 +301,11 @@ export function ResultPanel({
 }) {
   const passed = grade.passed;
   const tone = passed ? "mint" : "coral";
-  const beforePct = masteryPct(concept.interval, concept.repetitions);
+  const beforePct = masteryPct(concept.interval ?? 1, concept.repetitions ?? 0);
   // Use SM-2 interval + repetitions from the grade response (logical values,
-  // unaffected by demo-mode time scaling) rather than daysUntil(next_review),
-  // which in demo mode returns ~minutes and makes the bar appear static.
-  const afterPct = masteryPct(grade.interval, grade.repetitions);
+  // unaffected by demo-mode time scaling). Fall back to concept values + 1 rep
+  // if the server is still running pre-fix code and omits these fields.
+  const afterPct = masteryPct(grade.interval ?? concept.interval ?? 1, grade.repetitions ?? (concept.repetitions ?? 0) + 1);
   const [pct, setPct] = useState(beforePct);
 
   useEffect(() => {
