@@ -37,6 +37,11 @@ export interface GradeResult {
   quality: number; // SM-2 quality score, 0–5
   explanation: string; // one-sentence examiner feedback
   next_review: string; // ISO timestamp of the next scheduled review
+  // SM-2 state post-grade. interval is in logical "days" regardless of
+  // demo-mode time scaling — use these (not daysUntil(next_review)) for
+  // mastery percentage calculations.
+  interval: number;
+  repetitions: number;
 }
 
 /** Request body for POST /api/grade. */

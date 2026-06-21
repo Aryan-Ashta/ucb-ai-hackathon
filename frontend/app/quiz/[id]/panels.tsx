@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import type { Concept, GradeResult } from "@/lib/types";
 import { useRecorder } from "@/lib/useRecorder";
 import { USING_MOCK } from "@/lib/api";
-import { daysUntil, formatNextReview, formatTime, masteryPct } from "@/lib/format";
+import { formatNextReview, formatTime, masteryPct } from "@/lib/format";
 import { Mascot } from "@/components/Mascot";
 import {
   ArrowIcon,
@@ -301,8 +301,11 @@ export function ResultPanel({
 }) {
   const passed = grade.passed;
   const tone = passed ? "mint" : "coral";
-  const beforePct = masteryPct(concept.interval);
-  const afterPct = masteryPct(daysUntil(grade.next_review));
+  const beforePct = masteryPct(concept.interval, concept.repetitions);
+  // Use SM-2 interval + repetitions from the grade response (logical values,
+  // unaffected by demo-mode time scaling) rather than daysUntil(next_review),
+  // which in demo mode returns ~minutes and makes the bar appear static.
+  const afterPct = masteryPct(grade.interval, grade.repetitions);
   const [pct, setPct] = useState(beforePct);
 
   useEffect(() => {

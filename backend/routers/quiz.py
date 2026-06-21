@@ -147,17 +147,22 @@ async def grade(req: GradeRequest, user=Depends(get_current_user)):
             transcript=req.transcript,
         )
 
-    next_review = await _safe_update_sm2_state(user["id"], req.concept_id, result["quality"])
+    new_state = await _safe_update_sm2_state(user["id"], req.concept_id, result["quality"])
 
     return {
         "passed": result["passed"],
         "quality": result["quality"],
         "explanation": result["explanation"],
-        "next_review": datetime.fromtimestamp(next_review, tz=timezone.utc).isoformat(),
+        "next_review": datetime.fromtimestamp(new_state["next_review"], tz=timezone.utc).isoformat(),
+        # SM-2 interval (logical days, independent of demo/prod time scaling) and
+        # repetitions count let the frontend compute mastery % correctly regardless
+        # of whether DEMO_MODE is active (where next_review is minutes, not days).
+        "interval": new_state["interval"],
+        "repetitions": new_state["repetitions"],
     }
 
 
-async def _safe_update_sm2_state(user_id: str, concept_id: str, quality: int) -> int:
+async def _safe_update_sm2_state(user_id: str, concept_id: str, quality: int) -> dict:
     """P2-B8: a stale concept (state key TTL'd out mid-quiz, or never seeded)
     raises ValueError from update_sm2_state. That bare ValueError previously
     surfaced as a 500 — translate it to a 404 so the UI can ask the user to

@@ -41,9 +41,16 @@ export function mergedAgo(iso: string): string {
   return d === 1 ? "yesterday" : `${d}d ago`;
 }
 
-/** SM-2 interval → 0..100 mastery percent. Capped at 100. */
-export function masteryPct(intervalDays: number): number {
-  return Math.min(Math.round((intervalDays / 30) * 100), 100);
+/**
+ * SM-2 state → 0..100 mastery percent. Capped at 100.
+ * Interval drives 85% of the score (30 days = full mastery); the first
+ * few repetitions contribute up to 15 pts so the bar visibly moves even
+ * on rep 0→1 when interval stays at 1 day.
+ */
+export function masteryPct(intervalDays: number, repetitions = 0): number {
+  const intervalScore = (intervalDays / 30) * 85;
+  const repScore = Math.min(repetitions, 4) * 3.75; // 0–15 pts from reps
+  return Math.min(Math.round(intervalScore + repScore), 100);
 }
 
 /** "mm:ss" timer for the recording UI. */

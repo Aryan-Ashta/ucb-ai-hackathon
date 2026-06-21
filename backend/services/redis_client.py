@@ -319,9 +319,11 @@ async def get_quiz_content(user_id: str, concept_id: str) -> dict | None:
     return await _load_concept_envelope(user_id, concept_id, default_state_if_missing=True)
 
 
-async def update_sm2_state(user_id: str, concept_id: str, quality: int) -> int:
+async def update_sm2_state(user_id: str, concept_id: str, quality: int) -> dict:
     """
-    Update SM-2 state after a quiz answer. Returns next_review unix timestamp.
+    Update SM-2 state after a quiz answer.
+    Returns the full new state dict: {ease_factor, interval, repetitions, next_review}.
+    `next_review` is a unix timestamp; `interval` is the logical SM-2 interval in days.
     quality: 0-5 (from Claude grader)
     """
     r = await get_redis()
@@ -345,13 +347,13 @@ async def update_sm2_state(user_id: str, concept_id: str, quality: int) -> int:
         category="sm2",
         message=(
             f"Updated SM-2 for {concept_id}: quality={quality}, "
-            f"next_review in {new_state['interval']} days"
+            f"interval={new_state['interval']} days"
         ),
         level="info",
         data=new_state,
     )
 
-    return new_state["next_review"]
+    return new_state
 
 # ── user-scoped state (added by OAuth refactor) ────────────────────────────
 async def mark_pr_processed(user_id: str, *, repo: str, pr_number: int, merged_at: str) -> None:
