@@ -1,6 +1,7 @@
 "use client";
 
 import type { Concept } from "@/lib/types";
+import { Mascot } from "@/components/Mascot";
 
 /* ─── Icons (inline for crispness; mono-weight strokes) ─────────────────── */
 
@@ -103,8 +104,10 @@ export function Eyebrow({ concept }: { concept: Concept }) {
 
 export function ExaminerBubble({ roast, isSpeaking }: { roast: string; isSpeaking?: boolean }) {
   return (
-    <div className="flex gap-3 animate-rise" style={{ animationDelay: "60ms" }}>
-      <Duck className={`w-9 h-9 shrink-0 transition-transform ${isSpeaking ? "animate-breathe" : ""}`} />
+    <div className="flex gap-3 items-start animate-rise" style={{ animationDelay: "60ms" }}>
+      <div className="shrink-0 -mt-1">
+        <Mascot mood={isSpeaking ? "thinking" : "angry"} size={72} />
+      </div>
       <div
         className={`min-w-0 rounded-2xl rounded-tl-sm bg-surface-1 border border-l-2 px-4 py-3 transition-colors ${
           isSpeaking ? "border-marigold border-l-marigold" : "border-line border-l-coral"

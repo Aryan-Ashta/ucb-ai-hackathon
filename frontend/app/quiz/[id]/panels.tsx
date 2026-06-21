@@ -15,12 +15,12 @@ import type { Concept, GradeResult } from "@/lib/types";
 import { useRecorder } from "@/lib/useRecorder";
 import { USING_MOCK } from "@/lib/api";
 import { daysUntil, formatNextReview, formatTime, masteryPct } from "@/lib/format";
+import { Mascot } from "@/components/Mascot";
 import {
   ArrowIcon,
   CalendarIcon,
   CheckIcon,
   codeSpans,
-  Duck,
   ExaminerBubble,
   Eyebrow,
   ProgressRail,
@@ -74,7 +74,7 @@ export function LoadingPanel({ progress = 0 }: { progress?: number } = {}) {
   return (
     <Shell progress={progress}>
       <div className="flex-1 grid place-items-center">
-        <Duck className="w-14 h-14 animate-breathe" />
+        <Mascot mood="idle" size={96} />
       </div>
     </Shell>
   );
@@ -84,8 +84,8 @@ export function NotFoundPanel({ progress = 0 }: { progress?: number } = {}) {
   return (
     <Shell progress={progress}>
       <div className="flex-1 grid place-items-center text-center px-6">
-        <div>
-          <Duck className="w-14 h-14 mx-auto mb-4" />
+        <div className="flex flex-col items-center">
+          <Mascot mood="idle" size={96} className="mb-2" />
           <h1 className="font-display text-2xl font-bold mb-2">Nothing to review here</h1>
           <p className="text-ink-dim mb-6 text-sm">
             This concept isn&apos;t in your queue. It may have been reviewed already.
@@ -247,11 +247,11 @@ export function TypingPanel({
 
 export function SpeakingPanel() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-5 animate-fade py-8">
-      <Duck className="w-14 h-14 animate-breathe" />
+    <div className="flex-1 flex flex-col items-center justify-center gap-4 animate-fade py-8">
+      <Mascot mood="thinking" size={96} />
       <p className="font-mono text-xs uppercase tracking-[0.16em] text-ink-faint flex items-center gap-2">
         <span className="h-1.5 w-1.5 rounded-full bg-marigold animate-pulse" />
-        listening…
+        speaking…
       </p>
     </div>
   );
@@ -269,9 +269,9 @@ export function ThinkingPanel({
   seconds?: number;
 }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-6 animate-fade">
-      <Duck className="w-12 h-12" />
-      <div className="flex items-center gap-3 text-ink-dim">
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 animate-fade">
+      <Mascot mood="thinking" size={100} />
+      <div className="flex items-center gap-3 text-ink-dim -mt-1">
         <ThinkingDots />
         <span className="font-mono text-sm">
           {stage === "transcribing"
@@ -313,15 +313,9 @@ export function ResultPanel({
   return (
     <div className="flex-1 flex flex-col gap-6 animate-fade py-2">
       {/* Verdict */}
-      <div className="relative flex flex-col items-center text-center pt-4">
+      <div className="relative flex flex-col items-center text-center pt-2">
         {passed && <SparkBurst />}
-        <div
-          className={`relative grid place-items-center h-16 w-16 rounded-full mb-4 ${
-            passed ? "bg-mint text-canvas" : "bg-coral text-canvas"
-          }`}
-        >
-          {passed ? <CheckIcon /> : <RetryIcon />}
-        </div>
+        <Mascot mood={passed ? "happy" : "angry"} size={110} className="mb-1" />
         <h1 className="font-display text-3xl font-extrabold tracking-tightest mb-3">
           {passed ? "Nailed it." : "Not quite."}
         </h1>
@@ -378,8 +372,8 @@ export function ResultPanel({
 export function FailedPanel({ errorMsg, onRetry }: { errorMsg: string | null; onRetry: () => void }) {
   return (
     <div className="flex-1 grid place-items-center text-center animate-fade">
-      <div>
-        <Duck className="w-12 h-12 mx-auto mb-4" />
+      <div className="flex flex-col items-center">
+        <Mascot mood="angry" size={96} className="mb-1" />
         <p className="text-ink-dim mb-6 max-w-sm">{errorMsg}</p>
         <button
           onClick={onRetry}
