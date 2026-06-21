@@ -8,4 +8,6 @@ backend/.env
 .claude/
 
 # Local env files
+.env
+backend/.env
 backend/env
