@@ -48,8 +48,12 @@ def sentry_test_safe():
         profiles_sample_rate=0,
         transport=None,
     )
+    original_init = sentry_sdk.init
+    sentry_sdk.init = lambda *args, **kwargs: None
 
     yield
+
+    sentry_sdk.init = original_init
 
     # Final drain at session end — drop anything queued during tests.
     client = sentry_sdk.get_client()
