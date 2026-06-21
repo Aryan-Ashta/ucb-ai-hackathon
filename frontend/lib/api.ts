@@ -90,6 +90,12 @@ export const api = {
   listDueConcepts: (token: string, signal?: AbortSignal) =>
     apiFetch<ListDueResponse>("/api/concepts", { accessToken: token, ...(signal ? { signal } : {}) }),
 
+  getConceptById: (token: string, conceptId: string, signal?: AbortSignal) =>
+    apiFetch<{ user_id: string; concept: Concept }>(
+      `/api/concepts/${encodeURIComponent(conceptId)}`,
+      { accessToken: token, ...(signal ? { signal } : {}) },
+    ),
+
   gradeAnswer: (token: string, conceptId: string, transcript: string, signal?: AbortSignal) =>
     apiFetch<GradeResult>("/api/grade", {
       method: "POST",
@@ -131,7 +137,8 @@ export const api = {
 
 // --- Quiz-UI compatible functions (mock or live) ---
 
-/** Fetch a single concept by id. In live mode, pulls the due list and finds by id. */
+/** Fetch a single concept by id. In live mode, tries the single-concept endpoint first
+ * (works regardless of due status) and falls back to the due-list on 404 for backwards compat. */
 export async function getConcept(
   id: string,
   accessToken?: string,
@@ -141,8 +148,18 @@ export async function getConcept(
     await delay(300);
     return (findMockConcept(id) as Concept | undefined) ?? null;
   }
-  const data = await api.listDueConcepts(accessToken ?? "", signal);
-  return data.due.find((c) => c.id === id) ?? null;
+  // Try the single-concept endpoint first — works even if concept isn't due.
+  try {
+    const data = await api.getConceptById(accessToken ?? "", id, signal);
+    return data.concept;
+  } catch (err) {
+    // 404 → fall through to due-list lookup (backwards compat).
+    if (err instanceof ApiError && err.status === 404) {
+      const data = await api.listDueConcepts(accessToken ?? "", signal);
+      return data.due.find((c) => c.id === id) ?? null;
+    }
+    throw err;
+  }
 }
 
 /** Transcribe recorded audio. In live mode, sends bearer-authed multipart to backend. */
