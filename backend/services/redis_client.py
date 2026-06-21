@@ -128,13 +128,64 @@ async def cache_quiz_content(user_id: str, concept: QuizConcept) -> None:
     )
 
 
+def _flatten_concept(quiz: dict, state: dict, concept_id: str) -> dict:
+    """Build the frontend-shaped flat concept dict from the cached quiz +
+    state payloads. Centralizes the field-by-field translation so the three
+    list/single fetchers don't drift over time.
+    """
+    pr_number, commit_sha, source_type = parse_concept_id(concept_id)
+    return {
+        "id": concept_id,
+        "concept": quiz["concept"],
+        "roast_text": quiz["roast_text"],
+        "question_text": quiz["question_text"],
+        "answer_hint": quiz["answer_hint"],
+        "repo": quiz.get("repo", ""),
+        "pr_title": quiz.get("pr_title", ""),
+        "pr_number": pr_number,
+        # Flatten SM-2 state; convert next_review unix ts → ISO string
+        "ease_factor": state["ease_factor"],
+        "interval": state["interval"],
+        "repetitions": state["repetitions"],
+        "next_review": datetime.fromtimestamp(
+            state["next_review"], tz=timezone.utc
+        ).isoformat(),
+        # Provenance for the dashboard rendering layer.
+        "source_type": source_type,
+        "commit_sha": commit_sha,
+    }
+
+
+async def _load_concept_envelope(
+    user_id: str, concept_id: str, *, default_state_if_missing: bool = False
+) -> dict | None:
+    """Fetch quiz + state for one concept_id and return the flattened
+    envelope, or None if the quiz payload is missing (the state key is
+    optional — if absent, we synthesize a default so the quiz page still
+    renders for a freshly-cached concept whose state TTL hasn't been
+    written yet).
+    """
+    r = await get_redis()
+    quiz_key = f"concept:{user_id}:{concept_id}:quiz"
+    state_key = f"concept:{user_id}:{concept_id}:state"
+    quiz_raw = await r.get(quiz_key)
+    if not quiz_raw:
+        return None
+    state_raw = await r.get(state_key)
+    if state_raw:
+        state = json.loads(state_raw)
+    elif default_state_if_missing:
+        state = {"ease_factor": 2.5, "interval": 1, "repetitions": 0, "next_review": int(time.time())}
+    else:
+        return None  # state missing AND caller doesn't want a default — skip
+    return _flatten_concept(json.loads(quiz_raw), state, concept_id)
+
+
 async def get_due_concepts(user_id: str) -> list[dict]:
     """Return all concepts due for review, sorted by urgency.
 
-    Returns items shaped to match the frontend Concept type:
-      id, concept, roast_text, question_text, answer_hint,
-      next_review (ISO string), interval, ease_factor, repetitions,
-      pr_number, repo, pr_title.
+    Returns items shaped to match the frontend Concept type (see
+    `_flatten_concept` for the field set).
     """
     r = await get_redis()
     due_key = f"due:{user_id}"
@@ -142,41 +193,12 @@ async def get_due_concepts(user_id: str) -> list[dict]:
 
     due_concept_ids = await r.zrangebyscore(due_key, "-inf", now)
 
-    result = []
+    out: list[dict] = []
     for concept_id in due_concept_ids:
-        quiz_key = f"concept:{user_id}:{concept_id}:quiz"
-        state_key = f"concept:{user_id}:{concept_id}:state"
-        quiz_raw = await r.get(quiz_key)
-        state_raw = await r.get(state_key)
-        if not quiz_raw or not state_raw:
-            continue
-        quiz = json.loads(quiz_raw)
-        state = json.loads(state_raw)
-
-        pr_number, commit_sha, source_type = parse_concept_id(concept_id)
-
-        result.append({
-            "id": concept_id,
-            "concept": quiz["concept"],
-            "roast_text": quiz["roast_text"],
-            "question_text": quiz["question_text"],
-            "answer_hint": quiz["answer_hint"],
-            "repo": quiz.get("repo", ""),
-            "pr_title": quiz.get("pr_title", ""),
-            "pr_number": pr_number,
-            # Flatten SM-2 state; convert next_review unix ts → ISO string
-            "ease_factor": state["ease_factor"],
-            "interval": state["interval"],
-            "repetitions": state["repetitions"],
-            "next_review": datetime.fromtimestamp(
-                state["next_review"], tz=timezone.utc
-            ).isoformat(),
-            # P2: provenance for the dashboard rendering layer.
-            "source_type": source_type,
-            "commit_sha": commit_sha,
-        })
-
-    return result
+        env = await _load_concept_envelope(user_id, concept_id)
+        if env is not None:
+            out.append(env)
+    return out
 
 
 async def get_all_concepts(user_id: str) -> list[dict]:
@@ -190,39 +212,12 @@ async def get_all_concepts(user_id: str) -> list[dict]:
 
     all_concept_ids = await r.zrangebyscore(due_key, "-inf", "+inf")
 
-    result = []
+    out: list[dict] = []
     for concept_id in all_concept_ids:
-        quiz_key = f"concept:{user_id}:{concept_id}:quiz"
-        state_key = f"concept:{user_id}:{concept_id}:state"
-        quiz_raw = await r.get(quiz_key)
-        state_raw = await r.get(state_key)
-        if not quiz_raw or not state_raw:
-            continue
-        quiz = json.loads(quiz_raw)
-        state = json.loads(state_raw)
-
-        pr_number, commit_sha, source_type = parse_concept_id(concept_id)
-
-        result.append({
-            "id": concept_id,
-            "concept": quiz["concept"],
-            "roast_text": quiz["roast_text"],
-            "question_text": quiz["question_text"],
-            "answer_hint": quiz["answer_hint"],
-            "repo": quiz.get("repo", ""),
-            "pr_title": quiz.get("pr_title", ""),
-            "pr_number": pr_number,
-            "ease_factor": state["ease_factor"],
-            "interval": state["interval"],
-            "repetitions": state["repetitions"],
-            "next_review": datetime.fromtimestamp(
-                state["next_review"], tz=timezone.utc
-            ).isoformat(),
-            "source_type": source_type,
-            "commit_sha": commit_sha,
-        })
-
-    return result
+        env = await _load_concept_envelope(user_id, concept_id)
+        if env is not None:
+            out.append(env)
+    return out
 
 
 async def get_quiz_content(user_id: str, concept_id: str) -> dict | None:
@@ -231,36 +226,7 @@ async def get_quiz_content(user_id: str, concept_id: str) -> dict | None:
     Returns the same flattened shape as get_due_concepts so the frontend
     Concept type is satisfied on both the dashboard and the quiz page.
     """
-    r = await get_redis()
-    quiz_key = f"concept:{user_id}:{concept_id}:quiz"
-    state_key = f"concept:{user_id}:{concept_id}:state"
-    quiz_raw = await r.get(quiz_key)
-    if not quiz_raw:
-        return None
-    quiz = json.loads(quiz_raw)
-    state_raw = await r.get(state_key)
-    state = json.loads(state_raw) if state_raw else {"ease_factor": 2.5, "interval": 1, "repetitions": 0, "next_review": int(time.time())}
-
-    pr_number, commit_sha, source_type = parse_concept_id(concept_id)
-
-    return {
-        "id": concept_id,
-        "concept": quiz["concept"],
-        "roast_text": quiz["roast_text"],
-        "question_text": quiz["question_text"],
-        "answer_hint": quiz["answer_hint"],
-        "repo": quiz.get("repo", ""),
-        "pr_title": quiz.get("pr_title", ""),
-        "pr_number": pr_number,
-        "ease_factor": state["ease_factor"],
-        "interval": state["interval"],
-        "repetitions": state["repetitions"],
-        "next_review": datetime.fromtimestamp(
-            state["next_review"], tz=timezone.utc
-        ).isoformat(),
-        "source_type": source_type,
-        "commit_sha": commit_sha,
-    }
+    return await _load_concept_envelope(user_id, concept_id, default_state_if_missing=True)
 
 
 async def update_sm2_state(user_id: str, concept_id: str, quality: int) -> int:
