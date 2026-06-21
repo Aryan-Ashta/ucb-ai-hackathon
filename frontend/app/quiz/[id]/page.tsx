@@ -79,7 +79,6 @@ export default function QuizPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const userId = id.split(":")[0] || "demo";
   const runGrading = useCallback(
     // `directText` is a typed answer — it skips transcription and goes straight
     // to grading. Audio answers are transcribed first.

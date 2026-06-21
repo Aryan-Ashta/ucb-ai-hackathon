@@ -112,10 +112,19 @@ export default function Dashboard() {
   const [fetching, setFetching] = useState(!USING_MOCK);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  // Trace 3 M4: brief post-sync confirmation. Auto-clears after 4s so
+  // the user knows their click did something but the indicator doesn't
+  // linger.
+  const [syncSummary, setSyncSummary] = useState<string | null>(null);
+  const syncSummaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const hasAutoSyncedRef = useRef(false);
   const syncingRef = useRef(false);
+  // Trace 3 M2/M3: ref for the in-flight sync's AbortController so the
+  // unmount-cleanup useEffect below can cancel it. The user's Banana-Duck
+  // refactor dropped this — restoring it.
+  const syncCtrlRef = useRef<AbortController | null>(null);
   // P2-D3 (Trace M1): sessionStorage mirror of hasAutoSyncedRef so the
   // flag survives unmount/remount cycles. A ref resets when the component
   // unmounts, so navigating /dashboard → / → /dashboard mid-sync would
@@ -139,42 +148,70 @@ export default function Dashboard() {
     }
   }, [status, router]);
 
-  const triggerSync = async (token: string) => {
-    if (syncingRef.current) return;
-    syncingRef.current = true;
-    setSyncing(true);
-    setSyncError(null);
-    const inner = new AbortController();
-    syncCtrlRef.current = inner;
-    const composed = anySignal([inner.signal, signal ?? null]);
-    try {
-      await api.triggerSync(token);
-      const [dueData, allData] = await Promise.all([
-        api.listDueConcepts(token, composed.signal),
-        api.listAllConcepts(token, composed.signal),
-      ]);
-      setPrs(groupByPR(dueData.due));
-      setAllPrs(groupByPR(allData.concepts));
-      setCommitGroups(groupByCommit(allData.concepts));
-      // Trace 3 M4: brief confirmation. Use the API's summary so the
-      // user sees what was processed (or "you're up to date" if 0).
-      const s = syncResp.summary;
-      const processed = s.prs_processed + s.commits_processed;
-      const skipped = s.prs_skipped + s.commits_skipped;
-      if (processed > 0) {
-        showSyncSummary(`synced ${processed} new`);
-      } else if (skipped > 0) {
-        showSyncSummary("you're up to date");
-      } else {
-        showSyncSummary("synced");
+  // Trace 3 M4: brief confirmation helper, used by triggerSync below.
+  // Defined BEFORE triggerSync so the callback can reference it.
+  const showSyncSummary = useCallback((text: string) => {
+    setSyncSummary(text);
+    if (syncSummaryTimerRef.current) clearTimeout(syncSummaryTimerRef.current);
+    syncSummaryTimerRef.current = setTimeout(() => setSyncSummary(null), 4000);
+  }, []);
+
+  const triggerSync = useCallback(
+    async (token: string, signal?: AbortSignal) => {
+      if (syncingRef.current) return;
+      syncingRef.current = true;
+      setSyncing(true);
+      setSyncError(null);
+      const inner = new AbortController();
+      syncCtrlRef.current = inner;
+      const composed = anySignal([inner.signal, signal ?? null]);
+      try {
+        const syncResp = await api.triggerSync(token, composed.signal);
+        // Re-fetch both lists so the UI updates immediately when sync completes.
+        const [dueData, allData] = await Promise.all([
+          api.listDueConcepts(token, composed.signal),
+          api.listAllConcepts(token, composed.signal),
+        ]);
+        setPrs(groupByPR(dueData.due));
+        setAllPrs(groupByPR(allData.concepts));
+        setCommitGroups(groupByCommit(allData.concepts));
+        // Trace 3 M4: brief confirmation. Use the API's summary so the
+        // user sees what was processed (or "you're up to date" if 0).
+        const s = syncResp.summary;
+        const processed = s.prs_processed + s.commits_processed;
+        const skipped = s.prs_skipped + s.commits_skipped;
+        if (processed > 0) {
+          showSyncSummary(`synced ${processed} new`);
+        } else if (skipped > 0) {
+          showSyncSummary("you're up to date");
+        } else {
+          showSyncSummary("synced");
+        }
+      } catch (err) {
+        if (isAbortError(err)) return;
+        setSyncError(apiErrorToMessage(err, "dashboard sync"));
+      } finally {
+        syncingRef.current = false;
+        setSyncing(false);
+        if (syncCtrlRef.current === inner) syncCtrlRef.current = null;
       }
-    } catch (err) {
-      setSyncError(apiErrorToMessage(err, "dashboard sync"));
-    } finally {
-      syncingRef.current = false;
-      setSyncing(false);
-    }
-  };
+    },
+    [showSyncSummary],
+  );
+
+  // Trace 3 M2/M3: abort the in-flight sync on unmount.
+  useEffect(() => {
+    return () => {
+      syncCtrlRef.current?.abort();
+    };
+  }, []);
+
+  // Trace 3 M4: clean up the syncSummary timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (syncSummaryTimerRef.current) clearTimeout(syncSummaryTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (USING_MOCK || status !== "authenticated" || !session?.accessToken) return;
