@@ -61,13 +61,22 @@ async def get_authenticated_user(token: str) -> dict:
 
 async def list_user_repos(token: str) -> list[dict]:
     """
-    All repos the user can push to (owner, collaborator, or org member).
-    The result is a superset of what we'll actually sync; the orchestrator
-    can re-filter on `permissions.push` if it wants to be more selective.
+    All repos the user can push to (owner, collaborator, or org member),
+    capped at MAX_PAGES × 100/page = 5,000 repos.
+
+    Without a cap, a user belonging to many orgs (e.g. an enterprise
+    account) would walk every page the API returns. P2-B7 closes the
+    remaining gap left when the same cap was applied to list_merged_prs
+    in `bf11523`.
+
+    Note on early-exit: we can't short-circuit on `len(batch) < per_page`
+    because the GitHub API may legitimately return a partial page even
+    when more pages exist (the `per_page` parameter is a max, not an
+    exact). We rely on the empty-batch terminator + MAX_PAGES bound.
     """
     repos: list[dict] = []
     page = 1
-    while True:
+    while page <= MAX_PAGES:
         r = await _request(
             token,
             f"{GITHUB_API_BASE}/user/repos",
@@ -82,6 +91,7 @@ async def list_user_repos(token: str) -> list[dict]:
             return repos
         repos.extend(batch)
         page += 1
+    return repos
 
 
 async def list_merged_prs(
