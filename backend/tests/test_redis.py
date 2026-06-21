@@ -444,6 +444,86 @@ async def test_connect_kwargs_match_spec():
         )
 
 
+async def test_flatten_concept_round_trips_merged_at():
+    """P2-D2 (Trace H2): when a PR has been ingested (mark_pr_processed
+    wrote merged_at into user:{u}:prs), get_due_concepts must return the
+    real merged_at on each concept envelope — not None and not a
+    placeholder. Pins the round-trip behavior so the dashboard's
+    'merged 2d ago' bug can't silently regress.
+    """
+    from backend.services.redis_client import mark_pr_processed
+
+    # Two PRs with distinct, known merged_at timestamps.
+    merged_42 = "2026-06-19T15:00:00+00:00"
+    merged_99 = "2026-06-20T09:30:00+00:00"
+    await mark_pr_processed("u1", repo="octocat/hello", pr_number=42, merged_at=merged_42)
+    await mark_pr_processed("u1", repo="octocat/hello", pr_number=99, merged_at=merged_99)
+
+    # Cache two concepts, one per PR.
+    c42 = _concept(pr=42, slug="memoization")
+    c99 = _concept(pr=99, slug="recursion")
+    await cache_quiz_content("u1", c42)
+    await cache_quiz_content("u1", c99)
+    r = await get_redis()
+    past = int(time.time()) - 10
+    await r.zadd("due:u1", {c42.concept_id: past, c99.concept_id: past})
+
+    due = await get_due_concepts("u1")
+    by_id = {d["id"]: d for d in due}
+    assert by_id[c42.concept_id]["merged_at"] == merged_42
+    assert by_id[c99.concept_id]["merged_at"] == merged_99
+
+
+async def test_flatten_concept_merged_at_none_when_pr_not_in_prs_hash():
+    """A concept whose pr_number has no entry in user:{u}:prs (legacy data
+    ingested before mark_pr_processed ran) must have merged_at=None — the
+    frontend's group-concepts.ts falls back to 'recently' in that case.
+    """
+    # No mark_pr_processed call for pr=999 — only the concept is cached.
+    c = _concept(pr=999, slug="orphan")
+    await cache_quiz_content("u1", c)
+    r = await get_redis()
+    await r.zadd("due:u1", {c.concept_id: int(time.time()) - 10})
+
+    due = await get_due_concepts("u1")
+    assert len(due) == 1
+    # merged_at key must exist (the field is always present) but its
+    # value is None since there's no PRs-hash entry.
+    assert due[0]["merged_at"] is None
+
+
+async def test_flatten_concept_commit_sourced_has_no_merged_at():
+    """Commit-sourced concepts must never carry a merged_at value, even if
+    the user has PR entries in the hash (they don't relate to commits).
+    """
+    from backend.services.redis_client import mark_commit_processed, mark_pr_processed
+
+    # Mark a PR so there's something in user:{u}:prs.
+    await mark_pr_processed("u1", repo="r1", pr_number=10, merged_at="2026-06-01T00:00:00Z")
+    # And a commit.
+    await mark_commit_processed(
+        "u1", repo="r1", commit_sha="abc1234567890def", committed_at="2026-06-02T00:00:00Z",
+    )
+
+    # Cache a commit-sourced concept (concept_id with c-sha:slug).
+    commit_concept = QuizConcept(
+        concept_id="u1:c-abc1234:tracing",
+        concept="Stack traces",
+        roast_text="",
+        question_text="",
+        answer_hint="",
+    )
+    await cache_quiz_content("u1", commit_concept)
+    r = await get_redis()
+    await r.zadd("due:u1", {commit_concept.concept_id: int(time.time()) - 10})
+
+    due = await get_due_concepts("u1")
+    assert len(due) == 1
+    assert due[0]["source_type"] == "commit"
+    # Commit-sourced: merged_at must be None (not the PR's merged_at).
+    assert due[0]["merged_at"] is None
+
+
 @pytest.mark.xfail(
     reason="P2: production should clamp quality to [0, 5] inside update_sm2_state; "
     "today it forwards the value verbatim to sm2_next.",

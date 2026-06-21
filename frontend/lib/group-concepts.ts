@@ -27,14 +27,18 @@ export function groupByPR(concepts: Concept[]): PR[] {
   }
   return order.map((pr_number) => {
     const cs = byPr[pr_number];
+    // P2-D2 (Trace H2): prefer the backend's real merged_at from the
+    // /api/concepts envelope. Fall back to a 2-days-ago placeholder only
+    // for legacy concepts (no entry in user:{u}:prs) so the dashboard
+    // doesn't render an empty "merged just now" header for old data.
+    const firstMergedAt = cs.find((c) => typeof c.merged_at === "string")?.merged_at;
+    const merged_at =
+      firstMergedAt ?? new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
     return {
       pr_number,
       repo: cs[0].repo ?? "",
       title: cs[0].pr_title ?? `PR #${pr_number}`,
-      // The backend's flat /api/concepts response doesn't carry per-PR
-      // merged_at; we synthesize a fixed "2 days ago" so the PRBlock
-      // header renders sensibly until the backend grows the field.
-      merged_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      merged_at,
       concepts: cs,
     };
   });

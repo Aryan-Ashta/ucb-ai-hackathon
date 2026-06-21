@@ -18,6 +18,7 @@ export interface Concept {
   pr_title?: string;
   source_type?: "pr" | "commit"; // undefined / "pr" for legacy data
   commit_sha?: string; // full SHA when source_type="commit"
+  merged_at?: string; // ISO timestamp from user:{u}:prs (PR-sourced only); undefined = unknown
 }
 
 /** Response from POST /api/transcribe. */

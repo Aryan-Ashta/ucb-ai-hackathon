@@ -112,75 +112,11 @@ async def cache_quiz_content(user_id: str, concept: QuizConcept) -> None:
         level="info",
     )
 
-    # Fire-and-forget: index the concept in the vector store so future
-    # RAG queries can find it. Failure here never blocks ingestion.
-    _schedule_vector_index(concept)
-
-
-def _schedule_vector_index(concept) -> None:
-    """Spawn a background task to embed + index the concept.
-
-    We use asyncio.create_task so cache_quiz_content returns immediately
-    and the embedding HTTP call (Voyage) doesn't sit in the critical
-    path. The task captures all exceptions internally — they can't crash
-    the parent event loop.
-    """
-    import asyncio
-
-    from backend.services import vector_store
-
-    async def _run():
-        try:
-            parts = parse_concept_id(concept.concept_id)
-            await vector_store.index_concept(
-                user_id=extract_user_id(concept.concept_id),
-                concept_id=concept.concept_id,
-                concept_name=concept.concept,
-                roast_text=concept.roast_text,
-                question_text=concept.question_text,
-                source_type=parts.source_type,
-                pr_number_or_sha=str(parts.pr_number) if parts.source_type == "pr" else parts.commit_sha,
-                repo=concept.repo or "",
-            )
-        except Exception as e:
-            # vector_store already captures to Sentry; this is a final
-            # safety net for any error in the schedule/dispatch path.
-            sentry_sdk.capture_exception(e)
-
-    try:
-        asyncio.create_task(_run())
-    except RuntimeError:
-        # No event loop running (e.g. test fixtures outside async context).
-        # Indexing can be skipped — the cache write itself succeeded.
-        pass
-
-
-def _flatten_concept(quiz: dict, state: dict, concept_id: str) -> dict:
-    """Build the frontend-shaped flat concept dict from the cached quiz +
-    state payloads. Centralizes the field-by-field translation so the three
-    list/single fetchers don't drift over time.
-    """
-    parts = parse_concept_id(concept_id)
-    return {
-        "id": concept_id,
-        "concept": quiz["concept"],
-        "roast_text": quiz["roast_text"],
-        "question_text": quiz["question_text"],
-        "answer_hint": quiz["answer_hint"],
-        "repo": quiz.get("repo", ""),
-        "pr_title": quiz.get("pr_title", ""),
-        "pr_number": parts.pr_number,
-        # Flatten SM-2 state; convert next_review unix ts → ISO string
-        "ease_factor": state["ease_factor"],
-        "interval": state["interval"],
-        "repetitions": state["repetitions"],
-        "next_review": datetime.fromtimestamp(
-            state["next_review"], tz=timezone.utc
-        ).isoformat(),
-        # Provenance for the dashboard rendering layer.
-        "source_type": parts.source_type,
-        "commit_sha": parts.commit_sha,
-    }
+    # NOTE: Vector indexing moved to extract_concepts_and_cache (claude.py)
+    # so a single batch Voyage call covers all concepts from one PR/commit
+    # instead of one Voyage POST per concept (Trace 1 H2). The
+    # pending-index queue + drain worker handle the retry path for any
+    # batch failures — see services/reindex_worker.py.
 
 
 async def _load_concept_envelope(
@@ -205,7 +141,40 @@ async def _load_concept_envelope(
         state = {"ease_factor": 2.5, "interval": 1, "repetitions": 0, "next_review": int(time.time())}
     else:
         return None  # state missing AND caller doesn't want a default — skip
-    return _flatten_concept(json.loads(quiz_raw), state, concept_id)
+    # P2-D2 (Trace H2): also fetch the user's PR hash so we can attach
+    # merged_at to PR-sourced concepts. Single HGETALL — cheap.
+    pr_to_merged_at = await _load_pr_merged_at(user_id)
+    return _flatten_concept(json.loads(quiz_raw), state, concept_id, pr_to_merged_at)
+
+
+async def _load_pr_merged_at(user_id: str) -> dict[int, str]:
+    """Read user:{user_id}:prs and return a {pr_number: merged_at} map.
+
+    Skips commit-keyed entries (those start with 'c-') — only numeric PR
+    keys are PR-sourced concepts. Returns {} on any Redis hiccup so the
+    caller can fall through to the no-merged_at path gracefully.
+    """
+    try:
+        r = await get_redis()
+        raw = await r.hgetall(f"user:{user_id}:prs")
+    except Exception:
+        return {}
+    out: dict[int, str] = {}
+    for k, v in raw.items():
+        if k.startswith("c-"):
+            continue
+        try:
+            pr_number = int(k)
+        except ValueError:
+            continue
+        try:
+            payload = json.loads(v)
+        except json.JSONDecodeError:
+            continue
+        merged_at = payload.get("merged_at")
+        if isinstance(merged_at, str):
+            out[pr_number] = merged_at
+    return out
 
 
 async def _load_concept_envelopes_bulk(
@@ -237,6 +206,11 @@ async def _load_concept_envelopes_bulk(
         pipe.get(k)
     raw_values = await pipe.execute()
 
+    # P2-D2 (Trace H2): fetch the user's PRs hash once so each flattened
+    # envelope can carry its real merged_at instead of the frontend's
+    # constant "2 days ago" placeholder.
+    pr_to_merged_at = await _load_pr_merged_at(user_id)
+
     out: list[dict] = []
     for i, cid in enumerate(concept_ids):
         quiz_raw = raw_values[2 * i]
@@ -249,8 +223,54 @@ async def _load_concept_envelopes_bulk(
             state = {"ease_factor": 2.5, "interval": 1, "repetitions": 0, "next_review": int(time.time())}
         else:
             continue  # state missing AND caller doesn't want a default
-        out.append(_flatten_concept(json.loads(quiz_raw), state, cid))
+        out.append(_flatten_concept(json.loads(quiz_raw), state, cid, pr_to_merged_at))
     return out
+
+
+def _flatten_concept(
+    quiz: dict,
+    state: dict,
+    concept_id: str,
+    pr_to_merged_at: dict[int, str] | None = None,
+) -> dict:
+    """Build the frontend-shaped flat concept dict from the cached quiz +
+    state payloads. Centralizes the field-by-field translation so the three
+    list/single fetchers don't drift over time.
+
+    `pr_to_merged_at` (optional) maps pr_number → ISO timestamp for PR-sourced
+    concepts. The flat envelope doesn't have a per-PR header so we attach
+    merged_at to every concept; the dashboard takes the first concept's value
+    per PR. Commit-sourced concepts don't carry a merged_at — they have
+    committed_at in the user:{u}:prs hash but we don't surface it here.
+    """
+    parts = parse_concept_id(concept_id)
+    merged_at: str | None = None
+    if parts.source_type == "pr" and pr_to_merged_at is not None:
+        merged_at = pr_to_merged_at.get(parts.pr_number)
+    return {
+        "id": concept_id,
+        "concept": quiz["concept"],
+        "roast_text": quiz["roast_text"],
+        "question_text": quiz["question_text"],
+        "answer_hint": quiz["answer_hint"],
+        "repo": quiz.get("repo", ""),
+        "pr_title": quiz.get("pr_title", ""),
+        "pr_number": parts.pr_number,
+        # Flatten SM-2 state; convert next_review unix ts → ISO string
+        "ease_factor": state["ease_factor"],
+        "interval": state["interval"],
+        "repetitions": state["repetitions"],
+        "next_review": datetime.fromtimestamp(
+            state["next_review"], tz=timezone.utc
+        ).isoformat(),
+        # Provenance for the dashboard rendering layer.
+        "source_type": parts.source_type,
+        "commit_sha": parts.commit_sha,
+        # P2-D2 (Trace H2): real merged_at from user:{u}:prs instead of the
+        # frontend's constant "2 days ago" placeholder. Only set for
+        # PR-sourced concepts where we actually have a hash entry.
+        "merged_at": merged_at,
+    }
 
 
 async def get_due_concepts(user_id: str) -> list[dict]:

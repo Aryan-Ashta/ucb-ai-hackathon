@@ -51,6 +51,35 @@ describe("groupByPR", () => {
     expect(g.title).toBe("First");
   });
 
+  it("prefers the backend's real merged_at over the fallback placeholder", () => {
+    // P2-D2 (Trace H2): when the backend includes merged_at on at least
+    // one concept (e.g. the first), the group must use it instead of
+    // synthesizing a fixed "2 days ago".
+    const real = "2026-06-20T09:30:00+00:00";
+    const cs: Concept[] = [
+      base({ id: "u:7:a", pr_number: 7, repo: "r", pr_title: "PR", merged_at: real }),
+      base({ id: "u:7:b", pr_number: 7, repo: "r", pr_title: "PR" }),
+    ];
+    const [g] = groupByPR(cs);
+    expect(g.merged_at).toBe(real);
+  });
+
+  it("falls back to '2 days ago' placeholder when no concept carries merged_at", () => {
+    // Legacy concepts (pre-merged_at ingestion) have no merged_at field.
+    // The group must still produce a non-empty ISO string so the PRBlock
+    // header renders sensibly.
+    const before = Date.now();
+    const cs: Concept[] = [
+      base({ id: "u:8:a", pr_number: 8, repo: "r", pr_title: "PR" }),
+    ];
+    const [g] = groupByPR(cs);
+    expect(g.merged_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // Roughly 2 days ago (allow a few seconds of drift).
+    const ts = new Date(g.merged_at).getTime();
+    expect(ts).toBeGreaterThan(before - 2 * 24 * 60 * 60 * 1000 - 5000);
+    expect(ts).toBeLessThan(before - 2 * 24 * 60 * 60 * 1000 + 5000);
+  });
+
   it("falls back to 'PR #N' when title is missing", () => {
     const [g] = groupByPR([base({ id: "u:9:x", pr_number: 9 })]);
     expect(g.title).toBe("PR #9");
