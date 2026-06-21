@@ -42,11 +42,24 @@ def test_main_imports_cleanly():
     assert main_mod.app.title == "VibeSchool Backend"
 
 
+def _reset_root_logger():
+    """Strip every handler from the root logger so the next logging.basicConfig
+    call (which is a no-op when handlers already exist) actually configures
+    the root logger. Pytest's TestCapture plugin installs handlers early,
+    which is exactly why we need to scrub them before reloading main."""
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    # Also reset the level so we can observe the new one cleanly.
+    root.setLevel(logging.WARNING)
+
+
 def test_logging_basicconfig_runs_on_import(reload_main, monkeypatch):
     """P2-S2: logging.basicConfig must run at module-import time so that
     `logging.getLogger().info(...)` from anywhere in the app emits to stderr
-    even when SENTRY_DSN is empty. We verify by emitting a record and
-    checking the root logger has at least one handler (basicConfig's mark)."""
+    even when SENTRY_DSN is empty. We reset the root logger's handlers
+    (pytest adds its own) and then verify a StreamHandler is attached."""
+    _reset_root_logger()
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     reload_main()
     root = logging.getLogger()
@@ -61,6 +74,7 @@ def test_logging_level_respects_env(reload_main, monkeypatch):
     """P2-S2: LOG_LEVEL=DEBUG must propagate to the root logger level.
     Pinning this prevents an accidental regression where the default
     ('INFO') shadows a debug-needed production incident."""
+    _reset_root_logger()
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
     reload_main()
     assert logging.getLogger().level == logging.DEBUG, (
@@ -72,6 +86,7 @@ def test_logging_level_respects_env(reload_main, monkeypatch):
 def test_logging_level_default_is_info(reload_main, monkeypatch):
     """P2-S2: with no LOG_LEVEL set, the root logger should default to INFO
     — verbose enough to surface errors, quiet enough to not flood stderr."""
+    _reset_root_logger()
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     reload_main()
     assert logging.getLogger().level == logging.INFO, (
@@ -83,6 +98,7 @@ def test_logging_format_includes_standard_fields(reload_main, monkeypatch):
     """P2-S2: the configured format must include timestamp, level, logger name,
     and message — these are the four fields Sentry's logs UI and most log
     scrapers (Vector, Loki, Datadog) expect."""
+    _reset_root_logger()
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     reload_main()
     root = logging.getLogger()
@@ -101,6 +117,7 @@ def test_logging_uppercases_level(reload_main, monkeypatch):
     """P2-S2: a lowercase log level (e.g. `LOG_LEVEL=debug`) should still
     work — Python's logging.basicConfig accepts the uppercase form, so we
     uppercase before passing it through."""
+    _reset_root_logger()
     monkeypatch.setenv("LOG_LEVEL", "warning")
     reload_main()
     assert logging.getLogger().level == logging.WARNING, (
