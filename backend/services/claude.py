@@ -9,7 +9,7 @@ from backend.models import QuizConcept
 from backend.services.bear2 import compress_diff
 from backend.services.redis_client import cache_quiz_content
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
 MODEL = "claude-sonnet-4-6"
 
@@ -59,7 +59,7 @@ async def extract_concepts_and_cache(
         compressed_diff = await compress_diff(raw_diff)
 
         try:
-            message = client.messages.create(
+            message = await client.messages.create(
                 model=MODEL,
                 max_tokens=2048,
                 system=SYSTEM_PROMPT,
@@ -135,10 +135,25 @@ Grade on a 0-5 scale (SM-2 quality score):
 Respond ONLY with valid JSON, no markdown fences:
 {{"quality": <int 0-5>, "passed": <bool>, "explanation": "<one sentence feedback>"}}"""
 
-    message = client.messages.create(
+    message = await client.messages.create(
         model=MODEL,
         max_tokens=256,
         messages=[{"role": "user", "content": grading_prompt}],
     )
 
-    return json.loads(_strip_fences(message.content[0].text.strip()))
+    raw_response = _strip_fences(message.content[0].text.strip())
+    try:
+        result = json.loads(raw_response)
+    except json.JSONDecodeError as e:
+        sentry_sdk.capture_exception(e)
+        sentry_sdk.add_breadcrumb(
+            category="claude",
+            message=f"JSON parse failed. Raw response: {raw_response[:200]}",
+            level="error",
+        )
+        return {"passed": False, "quality": 0, "explanation": "Grading failed — please try again."}
+
+    q = max(0, min(5, int(result["quality"])))
+    result["quality"] = q
+    result["passed"] = bool(result.get("passed", q >= 3))
+    return result
