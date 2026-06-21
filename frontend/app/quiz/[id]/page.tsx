@@ -4,6 +4,7 @@ import {
   gradeAnswer,
   getConcept,
   listDueConcepts,
+  scheduleReview,
   transcribeAudio,
   USING_MOCK,
 } from "@/lib/api";
@@ -91,7 +92,13 @@ export default function QuizPage() {
           setPhase("notfound");
           return;
         }
-        setPhase("speaking");
+        // TTS requires a bearer token; mock mode and tokenless sessions skip
+        // straight to intro so the page doesn't hang on SpeakingPanel.
+        if (USING_MOCK || !token) {
+          setPhase("intro");
+        } else {
+          setPhase("speaking");
+        }
       })
       .catch((err: unknown) => {
         if (isAbortError(err)) {
@@ -166,6 +173,13 @@ export default function QuizPage() {
         const g = await gradeAnswer({ concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined, signal);
         setGrade(g);
         setPhase("result");
+        const nextTs = Date.parse(g.next_review);
+        if (!Number.isNaN(nextTs)) {
+          void scheduleReview(
+            session?.accessToken ?? "",
+            { concept_id: concept.id, next_review_timestamp: Math.floor(nextTs / 1000) },
+          );
+        }
       } catch (err: unknown) {
         if (isAbortError(err)) return;
         setErrorMsg("Something broke while scoring that. Try again in a moment.");
@@ -241,9 +255,7 @@ export default function QuizPage() {
               {(phase === "intro" || phase === "recording") && (
                 <RoastBubble roast={concept.roast_text} />
               )}
-              {phase !== "result" && phase !== "failed" && phase !== "speaking" && (
-                <QuestionHero concept={concept} />
-              )}
+              <QuestionHero concept={concept} />
             </div>
             <CodeExcerptPanel concept={concept} />
           </div>

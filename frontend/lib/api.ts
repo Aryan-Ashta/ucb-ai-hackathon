@@ -180,6 +180,29 @@ export const api = {
     }
     return res.blob();
   },
+
+  scheduleReview: async (
+    token: string,
+    body: { concept_id: string; next_review_timestamp: number },
+    signal?: AbortSignal,
+  ): Promise<{ status: string; event?: unknown; error?: string }> => {
+    try {
+      return await apiFetch<{ status: string; event?: unknown; error?: string }>(
+        "/api/schedule-review",
+        {
+          method: "POST",
+          accessToken: token,
+          body: JSON.stringify(body),
+          ...(signal ? { signal } : {}),
+        },
+      );
+    } catch (err) {
+      // Calendar side-effect should never poison the grade UX.
+      // eslint-disable-next-line no-console
+      console.warn("[scheduleReview] failed:", err);
+      return { status: "failed", error: String(err) };
+    }
+  },
 };
 
 // --- Quiz-UI compatible functions (mock or live) ---
@@ -258,4 +281,6 @@ export async function gradeAnswer(
 const MOCK_TRANSCRIPT =
   "I'd use memoization to cache the results of each subproblem in a lookup table, " +
   "so repeated calls return instantly instead of recomputing. That's basically dynamic programming.";
+
+export const scheduleReview = api.scheduleReview;
 
