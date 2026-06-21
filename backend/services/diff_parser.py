@@ -1,3 +1,4 @@
+import fnmatch
 import httpx
 import sentry_sdk
 
@@ -66,7 +67,11 @@ def clean_diff(raw_diff: str) -> str:
             current_file_allowed = any(
                 filename.endswith(ext) for ext in ALLOWED_EXTENSIONS
             ) and not any(
-                pat.replace("*", "") in filename for pat in SKIP_PATTERNS
+                # P2-B9: use fnmatch so the glob patterns in SKIP_PATTERNS
+                # (e.g. "*.min.js") actually match anywhere in the path,
+                # not just when stripped of `*` they happen to appear as
+                # a substring.
+                fnmatch.fnmatch(filename, pat) for pat in SKIP_PATTERNS
             )
             if current_file_allowed:
                 output_lines.append(line)

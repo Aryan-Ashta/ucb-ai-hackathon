@@ -98,12 +98,6 @@ export interface SyncTriggerResponse {
   summary: SyncSummary;
 }
 
-export interface SyncStatusResponse {
-  user: { id: string; login: string };
-  last_sync: number | null;
-  last_sync_iso: string | null;
-}
-
 /** Typed endpoint object for direct use in components that need live-only calls. */
 export const api = {
   listDueConcepts: (token: string, signal?: AbortSignal) =>
@@ -123,14 +117,12 @@ export const api = {
       ...(signal ? { signal } : {}),
     }),
 
+  // Used by frontend/app/dashboard/page.tsx (auto-sync + manual sync button).
   triggerSync: (token: string) =>
     apiFetch<SyncTriggerResponse>("/api/sync", {
       method: "POST",
       accessToken: token,
     }),
-
-  syncStatus: (token: string, signal?: AbortSignal) =>
-    apiFetch<SyncStatusResponse>("/api/sync/status", { accessToken: token, ...(signal ? { signal } : {}) }),
 
   transcribeAudio: async (
     token: string,

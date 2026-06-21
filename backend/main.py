@@ -1,6 +1,16 @@
+import logging
+import os
+
 import backend.sentry_init  # noqa: F401  — MUST be the first import (Sentry init)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# P2-S2: ensure silent failures aren't silent when SENTRY_DSN is empty in prod.
+# Format mirrors what Sentry emits so log scrapers can correlate the two streams.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 from backend.routers import concepts, enrich, quiz, schedule, sync
 

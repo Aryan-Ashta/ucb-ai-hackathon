@@ -1,9 +1,28 @@
 import math
+import os
 import time
+import warnings
 
 # Hackathon demo: scale intervals to minutes instead of days so the spaced-repetition
-# loop is demonstrable in real time during judging. Set to False for production (real days).
-DEMO_MODE = True
+# loop is demonstrable in real time during judging.
+#
+# P2-B2: make this env-driven so a prod deploy can't accidentally inherit the demo
+# timing. Default still True (matching previous behaviour) so existing imports keep
+# working without any extra config in the demo deployment.
+DEMO_MODE = os.environ.get("VIBESCHOOL_DEMO_MODE", "true").lower() in ("1", "true", "yes")
+
+# P2-B2: warn loudly if we boot into demo timing in a context that looks like
+# production — either NODE_ENV=production, or no VIBESCHOOL_DEMO_MODE opt-in was
+# provided at all (a missing env var is treated as a deploy mistake worth flagging).
+if DEMO_MODE:
+    if os.environ.get("NODE_ENV") == "production" or "VIBESCHOOL_DEMO_MODE" not in os.environ:
+        warnings.warn(
+            "DEMO_MODE is enabled — SM-2 intervals are scaled to minutes, not days. "
+            "This is intended for the hackathon demo only. Set VIBESCHOOL_DEMO_MODE=false "
+            "(and ideally NODE_ENV=production) for real users.",
+            RuntimeWarning,
+            stacklevel=1,
+        )
 
 
 def sm2_next(state: dict, quality: int) -> dict:

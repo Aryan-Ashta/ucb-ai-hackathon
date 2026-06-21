@@ -1,3 +1,5 @@
+import pytest
+
 from backend.services.sm2 import sm2_next
 
 
@@ -137,3 +139,95 @@ def test_sm2_quality_out_of_range_does_not_crash():
     assert 1.3 <= s["ease_factor"] <= 5.0, (
         f"ease_factor must remain within [1.3, 5.0], got {s['ease_factor']}"
     )
+
+
+# ── P2-B2: DEMO_MODE must be env-driven and warn in production-ish contexts ─
+
+
+def test_demo_mode_default_is_true(monkeypatch):
+    """P2-B2: with no VIBESCHOOL_DEMO_MODE env var set, DEMO_MODE defaults to True
+    so the existing demo deployment continues to work unchanged."""
+    monkeypatch.delenv("VIBESCHOOL_DEMO_MODE", raising=False)
+    monkeypatch.delenv("NODE_ENV", raising=False)
+    import importlib
+    import backend.services.sm2 as sm2_mod
+    importlib.reload(sm2_mod)
+    try:
+        assert sm2_mod.DEMO_MODE is True
+    finally:
+        # Restore module to its original state for the rest of the suite.
+        importlib.reload(sm2_mod)
+
+
+def test_demo_mode_can_be_disabled_via_env(monkeypatch):
+    """P2-B2: VIBESCHOOL_DEMO_MODE=false flips DEMO_MODE to False — production safety."""
+    monkeypatch.setenv("VIBESCHOOL_DEMO_MODE", "false")
+    monkeypatch.delenv("NODE_ENV", raising=False)
+    import importlib
+    import backend.services.sm2 as sm2_mod
+    importlib.reload(sm2_mod)
+    try:
+        assert sm2_mod.DEMO_MODE is False
+    finally:
+        # Restore to whatever the current env says, so subsequent tests aren't
+        # bound to the value we set here.
+        importlib.reload(sm2_mod)
+
+
+def test_demo_mode_truthy_variants(monkeypatch):
+    """P2-B2: 1/true/yes (case-insensitive) all enable DEMO_MODE."""
+    for val in ("1", "true", "TRUE", "Yes", "yes"):
+        monkeypatch.setenv("VIBESCHOOL_DEMO_MODE", val)
+        monkeypatch.delenv("NODE_ENV", raising=False)
+        import importlib
+        import backend.services.sm2 as sm2_mod
+        importlib.reload(sm2_mod)
+        try:
+            assert sm2_mod.DEMO_MODE is True, (
+                f"VIBESCHOOL_DEMO_MODE={val!r} should enable DEMO_MODE"
+            )
+        finally:
+            importlib.reload(sm2_mod)
+
+
+def test_demo_mode_warning_fires_in_production(monkeypatch):
+    """P2-B2: importing sm2 with NODE_ENV=production and DEMO_MODE still on
+    must emit a RuntimeWarning — this is the deploy-time guardrail that catches
+    a missing VIBESCHOOL_DEMO_MODE=false in production."""
+    monkeypatch.setenv("NODE_ENV", "production")
+    # Explicit opt-in to DEMO_MODE so we're testing the production-env branch
+    # specifically (the no-env-var branch is covered by the test below).
+    monkeypatch.setenv("VIBESCHOOL_DEMO_MODE", "true")
+    import importlib
+    import backend.services.sm2 as sm2_mod
+    with pytest.warns(RuntimeWarning, match="DEMO_MODE is enabled"):
+        importlib.reload(sm2_mod)
+    importlib.reload(sm2_mod)  # restore for the rest of the suite
+
+
+def test_demo_mode_warning_fires_when_env_var_missing(monkeypatch):
+    """P2-B2: a missing VIBESCHOOL_DEMO_MODE in any environment is treated as
+    a deploy mistake worth flagging — even outside production we don't want a
+    silent default that nobody remembers to override."""
+    monkeypatch.delenv("VIBESCHOOL_DEMO_MODE", raising=False)
+    monkeypatch.delenv("NODE_ENV", raising=False)
+    import importlib
+    import backend.services.sm2 as sm2_mod
+    with pytest.warns(RuntimeWarning, match="DEMO_MODE is enabled"):
+        importlib.reload(sm2_mod)
+    importlib.reload(sm2_mod)
+
+
+def test_demo_mode_no_warning_when_explicitly_disabled(monkeypatch):
+    """P2-B2: an explicit VIBESCHOOL_DEMO_MODE=false must NOT emit the warning,
+    even when NODE_ENV=production — the operator opted out, that's their signal."""
+    monkeypatch.setenv("VIBESCHOOL_DEMO_MODE", "false")
+    monkeypatch.setenv("NODE_ENV", "production")
+    import importlib
+    import warnings
+    import backend.services.sm2 as sm2_mod
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning → raise → fail the test
+        importlib.reload(sm2_mod)
+    assert sm2_mod.DEMO_MODE is False
+    importlib.reload(sm2_mod)

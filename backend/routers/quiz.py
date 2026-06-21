@@ -94,7 +94,7 @@ async def grade(req: GradeRequest, user=Depends(get_current_user)):
             transcript=req.transcript,
         )
 
-    next_review = await update_sm2_state(user["id"], req.concept_id, result["quality"])
+    next_review = await _safe_update_sm2_state(user["id"], req.concept_id, result["quality"])
 
     return {
         "passed": result["passed"],
@@ -102,3 +102,19 @@ async def grade(req: GradeRequest, user=Depends(get_current_user)):
         "explanation": result["explanation"],
         "next_review": next_review,
     }
+
+
+async def _safe_update_sm2_state(user_id: str, concept_id: str, quality: int) -> int:
+    """P2-B8: a stale concept (state key TTL'd out mid-quiz, or never seeded)
+    raises ValueError from update_sm2_state. That bare ValueError previously
+    surfaced as a 500 — translate it to a 404 so the UI can ask the user to
+    re-sync instead of seeing a server error.
+    """
+    try:
+        return await update_sm2_state(user_id, concept_id, quality)
+    except ValueError as e:
+        sentry_sdk.capture_exception(e)
+        raise HTTPException(
+            status_code=404,
+            detail="Concept state expired; please re-sync",
+        )

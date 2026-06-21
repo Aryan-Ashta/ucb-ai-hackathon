@@ -148,3 +148,74 @@ def test_post_transcribe_deepgram_malformed_json_returns_error_envelope(fake_red
     body = r.json()
     assert body["transcript"] == ""
     assert body["error"]  # non-empty error
+
+
+# --- /api/grade -------------------------------------------------------------
+
+
+def test_post_grade_requires_auth():
+    client = TestClient(app)
+    r = client.post(
+        "/api/grade",
+        json={"concept_id": "u1:42:fib", "transcript": "memoization"},
+    )
+    assert r.status_code == 401
+
+
+def test_post_grade_unknown_concept_returns_404(fake_redis, monkeypatch):
+    """The router already returns 404 if get_quiz_content is None (no quiz key)."""
+    async def fake_grade(**_kwargs):
+        return {"passed": True, "quality": 5, "explanation": "ok"}
+
+    from backend.routers import quiz as quiz_router
+    monkeypatch.setattr(quiz_router, "grade_answer", fake_grade)
+
+    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    client = TestClient(app)
+    r = client.post(
+        "/api/grade",
+        headers={"Authorization": "Bearer ghp_test"},
+        json={"concept_id": "u1:42:fib", "transcript": "memoization"},
+    )
+    assert r.status_code == 404
+    assert "not found" in r.json()["detail"].lower()
+
+
+def test_post_grade_stale_state_returns_404_instead_of_500(fake_redis, monkeypatch):
+    """P2-B8: if update_sm2_state raises ValueError (e.g. the state key TTL'd
+    out mid-quiz), the router must surface a 404 with a re-sync message instead
+    of leaking a 500. The UI then asks the user to re-sync."""
+    async def fake_grade(**_kwargs):
+        return {"passed": True, "quality": 5, "explanation": "ok"}
+
+    async def fake_get_quiz_content(_user_id, _concept_id):
+        # Return a valid quiz payload so the router reaches update_sm2_state.
+        return {
+            "id": "u1:42:fib",
+            "concept": "fib", "roast_text": "", "question_text": "q",
+            "answer_hint": "h", "repo": "x/y", "pr_title": "t",
+            "pr_number": 42, "ease_factor": 2.5, "interval": 1,
+            "repetitions": 0, "next_review": "1970-01-01T00:00:00+00:00",
+        }
+
+    async def fake_update_sm2_state_raises(*_args, **_kwargs):
+        raise ValueError("No state found for concept u1:42:fib")
+
+    from backend.routers import quiz as quiz_router
+    monkeypatch.setattr(quiz_router, "grade_answer", fake_grade)
+    monkeypatch.setattr(quiz_router, "get_quiz_content", fake_get_quiz_content)
+    # P2-B8: the wrap is in the helper, which calls into update_sm2_state via
+    # the redis_client symbol imported into the router module.
+    monkeypatch.setattr(quiz_router, "update_sm2_state", fake_update_sm2_state_raises)
+
+    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    client = TestClient(app)
+    r = client.post(
+        "/api/grade",
+        headers={"Authorization": "Bearer ghp_test"},
+        json={"concept_id": "u1:42:fib", "transcript": "memoization"},
+    )
+    assert r.status_code == 404, (
+        f"Stale concept state must surface as 404, got {r.status_code}: {r.text}"
+    )
+    assert "re-sync" in r.json()["detail"].lower()
