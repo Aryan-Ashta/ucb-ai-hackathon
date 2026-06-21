@@ -17,6 +17,10 @@ class QuizConcept(BaseModel):
     # Claude → Redis pipeline; the only difference is provenance.
     source_type: str = "pr"  # "pr" or "commit"
     commit_sha: str = ""     # full SHA when source_type="commit"; empty for PRs
+    # Code excerpt for the quiz UI — only populated for advanced/code-specific
+    # questions. Empty string means "show no snippet" (basic concept questions).
+    code_snippet: str = ""   # 3-7 lines of relevant code from the diff
+    file_path: str = ""      # path/to/file.py relative to repo root
 
 
 class ConceptList(BaseModel):

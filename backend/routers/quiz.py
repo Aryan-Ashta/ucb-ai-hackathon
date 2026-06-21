@@ -17,7 +17,7 @@ router = APIRouter()
 # forwards `audio.content_type` to Deepgram and unknown types would just be
 # rejected upstream — fail fast with a clear error instead.
 MAX_AUDIO_BYTES: int = 10 * 1024 * 1024  # 10 MB
-ALLOWED_MIME_TYPES: set[str] = {"audio/webm", "audio/wav", "audio/mpeg", "audio/ogg"}
+ALLOWED_MIME_TYPES: set[str] = {"audio/webm", "audio/wav", "audio/mpeg", "audio/ogg", "audio/mp4"}
 
 
 @router.post("/transcribe")
@@ -34,7 +34,12 @@ async def transcribe(
     per-user); the dependency exists so unauthenticated callers cannot
     burn the Deepgram API key.
     """
-    if audio.content_type and audio.content_type not in ALLOWED_MIME_TYPES:
+    # Strip codec parameters (e.g. "audio/webm;codecs=opus" → "audio/webm")
+    # before checking the allow-list. Browsers append codec info to the
+    # MIME type reported by MediaRecorder but Deepgram cares only about
+    # the base container format.
+    base_type = (audio.content_type or "").split(";")[0].strip().lower()
+    if base_type and base_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=415,
             detail=(

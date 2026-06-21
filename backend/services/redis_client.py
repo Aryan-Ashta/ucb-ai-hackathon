@@ -87,6 +87,10 @@ async def cache_quiz_content(user_id: str, concept: QuizConcept) -> None:
         # the result screen for commit-sourced concepts.
         "source_type": concept.source_type,
         "commit_sha": concept.commit_sha,
+        # Code excerpt for the quiz UI — only set for advanced/code-specific
+        # questions; empty string for basic concept questions.
+        "code_snippet": concept.code_snippet,
+        "file_path": concept.file_path,
     }
 
     now = int(time.time())
@@ -255,6 +259,8 @@ def _flatten_concept(
         "answer_hint": quiz["answer_hint"],
         "repo": quiz.get("repo", ""),
         "pr_title": quiz.get("pr_title", ""),
+        "code_snippet": quiz.get("code_snippet", ""),
+        "file_path": quiz.get("file_path", ""),
         "pr_number": parts.pr_number,
         # Flatten SM-2 state; convert next_review unix ts → ISO string
         "ease_factor": state["ease_factor"],

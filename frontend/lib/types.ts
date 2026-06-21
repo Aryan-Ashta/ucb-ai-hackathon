@@ -19,6 +19,10 @@ export interface Concept {
   source_type?: "pr" | "commit"; // undefined / "pr" for legacy data
   commit_sha?: string; // full SHA when source_type="commit"
   merged_at?: string; // ISO timestamp from user:{u}:prs (PR-sourced only); undefined = unknown
+  // Code excerpt shown alongside the question for advanced/code-specific concepts.
+  // Empty string / undefined = basic concept question, no snippet shown.
+  code_snippet?: string;
+  file_path?: string; // path/to/file.py relative to repo root
 }
 
 /** Response from POST /api/transcribe. */

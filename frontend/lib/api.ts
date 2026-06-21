@@ -162,32 +162,6 @@ export const api = {
     return (await res.json()) as { transcript: string; error?: string };
   },
 
-  // H1 (Trace 2): calendar event hook. Backend pulls the calendar_id from
-  // server-side config — the client only sends (concept_id, next_review_timestamp).
-  // Failures here are non-fatal (grade + SM-2 already succeeded); the backend
-  // returns {status: "failed", error: ...} with HTTP 200, so we just log.
-  scheduleReview: async (
-    token: string,
-    body: { concept_id: string; next_review_timestamp: number },
-    signal?: AbortSignal,
-  ): Promise<{ status: string; event?: unknown; error?: string }> => {
-    try {
-      return await apiFetch<{ status: string; event?: unknown; error?: string }>(
-        "/api/schedule-review",
-        {
-          method: "POST",
-          accessToken: token,
-          body: JSON.stringify(body),
-          ...(signal ? { signal } : {}),
-        },
-      );
-    } catch (err) {
-      // Calendar side-effect should never poison the grade UX.
-      // eslint-disable-next-line no-console
-      console.warn("[scheduleReview] failed:", err);
-      return { status: "failed", error: String(err) };
-    }
-  },
 };
 
 // --- Quiz-UI compatible functions (mock or live) ---
@@ -249,8 +223,3 @@ const MOCK_TRANSCRIPT =
   "I'd use memoization to cache the results of each subproblem in a lookup table, " +
   "so repeated calls return instantly instead of recomputing. That's basically dynamic programming.";
 
-// Top-level re-export for components that import via named bindings
-// (the quiz page uses `import { scheduleReview } from "@/lib/api"`) while
-// the dashboard namespace still uses `api.scheduleReview(...)`. Keeps
-// both call-site shapes working without a refactor.
-export const scheduleReview = api.scheduleReview;

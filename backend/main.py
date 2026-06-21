@@ -12,7 +12,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
-from backend.routers import concepts, quiz, schedule, sync
+from backend.routers import concepts, quiz, sync
 
 app = FastAPI(title="VibeSchool Backend")
 app.add_middleware(
@@ -31,7 +31,7 @@ app.add_middleware(
 app.include_router(sync.router, prefix="/api")
 app.include_router(concepts.router, prefix="/api")
 app.include_router(quiz.router, prefix="/api")
-app.include_router(schedule.router, prefix="/api")
+
 
 
 @app.get("/health")
