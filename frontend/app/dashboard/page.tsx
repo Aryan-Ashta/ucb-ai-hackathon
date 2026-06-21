@@ -208,9 +208,11 @@ export default function Dashboard() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(!USING_MOCK);
   const [syncing, setSyncing] = useState(false);
-  // Auto-sync once per session when the user has never synced and has no
-  // due concepts (first-run experience). Ref survives re-renders but resets
-  // when the component remounts (i.e. user navigates away and back).
+  const [syncError, setSyncError] = useState<string | null>(null);
+  // Auto-sync once per session when the user has no due concepts (first-run
+  // OR caught-up). Re-sync is cheap (per-PR hash dedupes; no GitHub fetch
+  // for already-seen PRs), so we don't gate on last_sync — we just trust
+  // the user's intent ("show me my concepts") over a last-write timestamp.
   const hasAutoSyncedRef = useRef(false);
   // In-flight guard (avoids re-creating triggerSync when `syncing` flips).
   const syncingRef = useRef(false);
@@ -225,14 +227,15 @@ export default function Dashboard() {
     if (syncingRef.current) return;
     syncingRef.current = true;
     setSyncing(true);
+    setSyncError(null);
     try {
       await api.triggerSync(token);
       // Re-fetch due concepts so the UI updates immediately when sync completes.
       const data = await api.listDueConcepts(token);
       setPrs(groupByPR(data.due));
     } catch (err) {
-      // Log to console; don't surface a toast — sync is a background op and
-      // the manual Sync button stays available for retry.
+      const msg = err instanceof Error ? err.message : String(err);
+      setSyncError(msg);
       console.warn("[dashboard] sync failed:", err);
     } finally {
       syncingRef.current = false;
@@ -240,9 +243,9 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Live backend: fetch due concepts and group into PRs. Also fetches the
-  // sync status so we can auto-trigger a first-time sync when the user has
-  // never synced AND has no due concepts.
+  // Live backend: fetch due concepts and group into PRs. Auto-trigger a sync
+  // when the user has nothing due (covers first-run AND caught-up cases —
+  // re-sync is idempotent so the cost is bounded).
   useEffect(() => {
     if (USING_MOCK || status !== "authenticated" || !session?.accessToken) return;
     const ctrl = new AbortController();
@@ -250,21 +253,11 @@ export default function Dashboard() {
     setFetching(true);
     setFetchError(null);
 
-    Promise.all([
-      api
-        .syncStatus(token, ctrl.signal)
-        .catch(() => ({ user: { id: "", login: "" }, last_sync: null, last_sync_iso: null })),
-      api.listDueConcepts(token, ctrl.signal),
-    ])
-      .then(([statusRes, dueRes]) => {
-        setPrs(groupByPR(dueRes.due));
-        // First-time experience: user has never synced AND has nothing due.
-        // Auto-trigger a full sync so they don't have to discover a button.
-        if (
-          statusRes.last_sync === null &&
-          dueRes.due.length === 0 &&
-          !hasAutoSyncedRef.current
-        ) {
+    api
+      .listDueConcepts(token, ctrl.signal)
+      .then((data) => {
+        setPrs(groupByPR(data.due));
+        if (data.due.length === 0 && !hasAutoSyncedRef.current) {
           hasAutoSyncedRef.current = true;
           void triggerSync(token);
         }
@@ -313,13 +306,23 @@ export default function Dashboard() {
           )}
           <span className="text-sm text-ink-dim hidden sm:block">{session.user?.name}</span>
           {session?.accessToken && !USING_MOCK && (
-            <button
-              onClick={() => triggerSync(session.accessToken!)}
-              disabled={syncing}
-              className="font-mono text-xs text-ink-faint hover:text-ink-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {syncing ? "syncing…" : "sync"}
-            </button>
+            <div className="flex items-center gap-2">
+              {syncError && (
+                <span
+                  className="font-mono text-[11px] text-coral"
+                  title={syncError}
+                >
+                  sync failed — click to retry
+                </span>
+              )}
+              <button
+                onClick={() => triggerSync(session.accessToken!)}
+                disabled={syncing}
+                className="font-mono text-xs px-2 py-1 rounded border border-line bg-surface-1 text-ink hover:bg-surface-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {syncing ? "syncing…" : "sync"}
+              </button>
+            </div>
           )}
           <button
             onClick={() => signOut({ callbackUrl: "/" })}
