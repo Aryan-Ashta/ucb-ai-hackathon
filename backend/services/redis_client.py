@@ -167,24 +167,65 @@ async def _load_concept_envelope(
     return _flatten_concept(json.loads(quiz_raw), state, concept_id)
 
 
+async def _load_concept_envelopes_bulk(
+    user_id: str, concept_ids: list[str], *, default_state_if_missing: bool = False
+) -> list[dict]:
+    """Bulk-load envelopes for many concept_ids in a single Redis pipeline.
+
+    P2-B1: the per-concept loop above issues 2N round-trips (1 zrange
+    outside + 2 GETs per concept). For 30 due concepts that's 61
+    round-trips against Redis Cloud. This bulk loader pipelines the 2N
+    GETs into one round-trip per batch — typically one for a normal
+    user's queue. Returns envelopes in input order, skipping any concept
+    where the quiz payload is missing (or where state is missing AND the
+    caller doesn't want a default).
+    """
+    if not concept_ids:
+        return []
+    r = await get_redis()
+
+    # Build the full key list up front so we can map pipeline responses
+    # back to their concept_ids in O(1).
+    keys: list[str] = []
+    for cid in concept_ids:
+        keys.append(f"concept:{user_id}:{cid}:quiz")
+        keys.append(f"concept:{user_id}:{cid}:state")
+
+    pipe = r.pipeline()
+    for k in keys:
+        pipe.get(k)
+    raw_values = await pipe.execute()
+
+    out: list[dict] = []
+    for i, cid in enumerate(concept_ids):
+        quiz_raw = raw_values[2 * i]
+        state_raw = raw_values[2 * i + 1]
+        if not quiz_raw:
+            continue  # quiz payload missing — drop silently
+        if state_raw:
+            state = json.loads(state_raw)
+        elif default_state_if_missing:
+            state = {"ease_factor": 2.5, "interval": 1, "repetitions": 0, "next_review": int(time.time())}
+        else:
+            continue  # state missing AND caller doesn't want a default
+        out.append(_flatten_concept(json.loads(quiz_raw), state, cid))
+    return out
+
+
 async def get_due_concepts(user_id: str) -> list[dict]:
     """Return all concepts due for review, sorted by urgency.
 
     Returns items shaped to match the frontend Concept type (see
     `_flatten_concept` for the field set).
+
+    P2-B1: bulk-load via a single Redis pipeline instead of 2N GETs.
     """
     r = await get_redis()
     due_key = f"due:{user_id}"
     now = int(time.time())
 
     due_concept_ids = await r.zrangebyscore(due_key, "-inf", now)
-
-    out: list[dict] = []
-    for concept_id in due_concept_ids:
-        env = await _load_concept_envelope(user_id, concept_id)
-        if env is not None:
-            out.append(env)
-    return out
+    return await _load_concept_envelopes_bulk(user_id, due_concept_ids)
 
 
 async def get_all_concepts(user_id: str) -> list[dict]:
@@ -192,18 +233,14 @@ async def get_all_concepts(user_id: str) -> list[dict]:
 
     Used by the dashboard concept bank so reviewed concepts (scheduled for
     the future) don't silently vanish from the inventory view.
+
+    P2-B1: bulk-load via a single Redis pipeline instead of 2N GETs.
     """
     r = await get_redis()
     due_key = f"due:{user_id}"
 
     all_concept_ids = await r.zrangebyscore(due_key, "-inf", "+inf")
-
-    out: list[dict] = []
-    for concept_id in all_concept_ids:
-        env = await _load_concept_envelope(user_id, concept_id)
-        if env is not None:
-            out.append(env)
-    return out
+    return await _load_concept_envelopes_bulk(user_id, all_concept_ids)
 
 
 async def get_quiz_content(user_id: str, concept_id: str) -> dict | None:
