@@ -14,6 +14,9 @@ import httpx
 import sentry_sdk
 
 from backend.config import GITHUB_API_BASE
+from backend.services.http_client import shared_client
+
+_client = shared_client("github_oauth")
 
 
 # Safety cap on pagination for a single repo: 50 pages × 100/page = 5,000 PRs.
@@ -45,10 +48,9 @@ async def _request(
         headers["Accept"] = accept
     if extra_headers:
         headers.update(extra_headers)
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, headers=headers, params=params, timeout=timeout)
-        r.raise_for_status()
-        return r
+    r = await _client.get(url, headers=headers, params=params, timeout=timeout)
+    r.raise_for_status()
+    return r
 
 
 async def get_authenticated_user(token: str) -> dict:

@@ -3,6 +3,9 @@ import httpx
 import sentry_sdk
 
 from backend.config import GITHUB_TOKEN
+from backend.services.http_client import shared_client
+
+_client = shared_client("diff_parser")
 
 # File extensions to keep — ignore everything else.
 ALLOWED_EXTENSIONS = {
@@ -32,10 +35,12 @@ async def fetch_and_parse_diff(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers, timeout=15.0)
+    async def _do_request():
+        response = await _client.get(url, headers=headers, timeout=15.0)
         response.raise_for_status()
-        raw_diff = response.text
+        return response.text
+
+    raw_diff = await _do_request()
 
     cleaned = clean_diff(raw_diff)
 

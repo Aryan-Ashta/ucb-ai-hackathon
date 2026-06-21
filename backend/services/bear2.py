@@ -2,8 +2,11 @@ import httpx
 import sentry_sdk
 
 from backend.config import TOKEN_COMPANY_API_KEY
+from backend.services.http_client import shared_client
 
 BEAR2_URL = "https://api.thetokencompany.com/v1/compress"  # confirm exact URL from docs
+
+_client = shared_client("bear2")
 
 
 def count_tokens_approx(text: str) -> int:
@@ -21,25 +24,24 @@ async def compress_diff(raw_diff: str) -> str:
     compressed_tokens = count_tokens_approx("")
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                BEAR2_URL,
-                headers={
-                    "Authorization": f"Bearer {TOKEN_COMPANY_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "bear-2",
-                    "input": raw_diff,
-                },
-                timeout=10.0,
-            )
-            response.raise_for_status()
-            data = response.json()
-            compressed = data["output"]
-            # Use the API's BPE-based counts if available, else heuristic.
-            raw_tokens = data.get("original_input_tokens") or raw_tokens
-            compressed_tokens = data.get("output_tokens") or compressed_tokens
+        response = await _client.post(
+            BEAR2_URL,
+            headers={
+                "Authorization": f"Bearer {TOKEN_COMPANY_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "bear-2",
+                "input": raw_diff,
+            },
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        compressed = data["output"]
+        # Use the API's BPE-based counts if available, else heuristic.
+        raw_tokens = data.get("original_input_tokens") or raw_tokens
+        compressed_tokens = data.get("output_tokens") or compressed_tokens
     except Exception as e:
         sentry_sdk.capture_exception(e)
         sentry_sdk.add_breadcrumb(

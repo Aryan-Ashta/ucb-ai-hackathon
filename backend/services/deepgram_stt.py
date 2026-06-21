@@ -2,8 +2,11 @@ import httpx
 import sentry_sdk
 
 from backend.config import DEEPGRAM_API_KEY
+from backend.services.http_client import shared_client
 
 DEEPGRAM_STT_URL = "https://api.deepgram.com/v1/listen"
+
+_client = shared_client("deepgram_stt")
 
 
 async def transcribe_audio(audio_bytes: bytes, mimetype: str = "audio/webm") -> str:
@@ -18,19 +21,18 @@ async def transcribe_audio(audio_bytes: bytes, mimetype: str = "audio/webm") -> 
         "language": "en-US",
     }
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            DEEPGRAM_STT_URL,
-            params=params,
-            headers={
-                "Authorization": f"Token {DEEPGRAM_API_KEY}",
-                "Content-Type": mimetype,
-            },
-            content=audio_bytes,
-            timeout=30.0,
-        )
-        response.raise_for_status()
-        data = response.json()
+    response = await _client.post(
+        DEEPGRAM_STT_URL,
+        params=params,
+        headers={
+            "Authorization": f"Token {DEEPGRAM_API_KEY}",
+            "Content-Type": mimetype,
+        },
+        content=audio_bytes,
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    data = response.json()
 
     transcript = (
         data.get("results", {})

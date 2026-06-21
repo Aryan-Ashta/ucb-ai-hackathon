@@ -5,6 +5,7 @@ import httpx
 import sentry_sdk
 
 from backend.config import BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID
+from backend.services.http_client import shared_client
 from backend.services.redis_client import REDIS_TTL_SECONDS, get_redis
 
 BROWSERBASE_API_BASE = "https://api.browserbase.com/v1"  # confirm from Browserbase docs
@@ -16,6 +17,8 @@ AUTHORITATIVE_SOURCES = [
     "docs.rust-lang.org",
     "go.dev/doc",
 ]
+
+_client = shared_client("browserbase")
 
 
 class EnrichmentResult(TypedDict):
@@ -42,40 +45,39 @@ async def enrich_concept(concept: str, concept_id: str, user_id: str) -> Enrichm
     returning an empty string. The router surfaces this shape to the client.
     """
     try:
-        async with httpx.AsyncClient() as client:
-            # Step 1: create a session.
-            session_resp = await client.post(
-                f"{BROWSERBASE_API_BASE}/sessions",
-                headers={
-                    "x-bb-api-key": BROWSERBASE_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json={"projectId": BROWSERBASE_PROJECT_ID},
-                timeout=10.0,
-            )
-            session_resp.raise_for_status()
-            session_id = session_resp.json()["id"]
+        # Step 1: create a session.
+        session_resp = await _client.post(
+            f"{BROWSERBASE_API_BASE}/sessions",
+            headers={
+                "x-bb-api-key": BROWSERBASE_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json={"projectId": BROWSERBASE_PROJECT_ID},
+            timeout=10.0,
+        )
+        session_resp.raise_for_status()
+        session_id = session_resp.json()["id"]
 
-            # Step 2: navigate to MDN search.
-            mdn_url = (
-                f"https://developer.mozilla.org/en-US/search?q={concept.replace(' ', '+')}"
-            )
-            fetch_resp = await client.post(
-                f"{BROWSERBASE_API_BASE}/sessions/{session_id}/fetch",
-                headers={
-                    "x-bb-api-key": BROWSERBASE_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json={"url": mdn_url},
-                timeout=20.0,
-            )
-            fetch_resp.raise_for_status()
-            page_text = fetch_resp.json().get("text", "")
+        # Step 2: navigate to MDN search.
+        mdn_url = (
+            f"https://developer.mozilla.org/en-US/search?q={concept.replace(' ', '+')}"
+        )
+        fetch_resp = await _client.post(
+            f"{BROWSERBASE_API_BASE}/sessions/{session_id}/fetch",
+            headers={
+                "x-bb-api-key": BROWSERBASE_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json={"url": mdn_url},
+            timeout=20.0,
+        )
+        fetch_resp.raise_for_status()
+        page_text = fetch_resp.json().get("text", "")
 
-            # Extract first meaningful paragraph (heuristic: long, not a nav item).
-            lines = [l.strip() for l in page_text.split("\n") if len(l.strip()) > 80]
-            snippet = lines[0] if lines else f"A core CS concept: {concept}."
-            snippet = snippet[:300]
+        # Extract first meaningful paragraph (heuristic: long, not a nav item).
+        lines = [l.strip() for l in page_text.split("\n") if len(l.strip()) > 80]
+        snippet = lines[0] if lines else f"A core CS concept: {concept}."
+        snippet = snippet[:300]
     except Exception as e:
         sentry_sdk.capture_exception(e)
         sentry_sdk.add_breadcrumb(

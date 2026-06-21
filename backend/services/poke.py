@@ -4,8 +4,11 @@ import httpx
 import sentry_sdk
 
 from backend.config import POKE_API_KEY
+from backend.services.http_client import shared_client
 
 POKE_API_BASE = "https://api.interaction.co/v1"  # confirm exact URL from Interaction Co docs
+
+_client = shared_client("poke")
 
 
 async def schedule_review_block(
@@ -31,18 +34,17 @@ async def schedule_review_block(
         "calendar_id": user_calendar_id,
     }
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{POKE_API_BASE}/events",
-            headers={
-                "Authorization": f"Bearer {POKE_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=event_payload,
-            timeout=10.0,
-        )
-        response.raise_for_status()
-        event = response.json()
+    response = await _client.post(
+        f"{POKE_API_BASE}/events",
+        headers={
+            "Authorization": f"Bearer {POKE_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json=event_payload,
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    event = response.json()
 
     sentry_sdk.add_breadcrumb(
         category="poke",

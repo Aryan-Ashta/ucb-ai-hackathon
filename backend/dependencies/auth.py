@@ -9,6 +9,7 @@ import sentry_sdk
 from fastapi import Header, HTTPException
 
 from backend.config import GITHUB_API_BASE
+from backend.services.http_client import shared_client
 from backend.services.token_store import store_token
 
 # P1-B2: In-process cache for token → user identity, with both a TTL and a
@@ -19,6 +20,10 @@ _USER_CACHE: cachetools.TTLCache[str, tuple[str, str, float]] = cachetools.TTLCa
     maxsize=10_000, ttl=60
 )
 _USER_CACHE_TTL_SECONDS: int = 60
+
+# Single httpx client per process — reused across every auth check so
+# subsequent calls reuse the keep-alive connection (P1-B9).
+_auth_client = shared_client("auth")
 
 
 def _cache_key(token: str) -> str:
@@ -50,19 +55,18 @@ async def get_current_user(authorization: Annotated[str | None, Header()] = None
         user_id, login, _ = cached
         return {"id": user_id, "login": login, "token": token}
 
-    async with httpx.AsyncClient() as client:
-        try:
-            r = await client.get(
-                f"{GITHUB_API_BASE}/user",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                timeout=5.0,
-            )
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=503, detail=f"GitHub unreachable: {e!s}") from e
+    try:
+        r = await _auth_client.get(
+            f"{GITHUB_API_BASE}/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=5.0,
+        )
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=503, detail=f"GitHub unreachable: {e!s}") from e
 
     if r.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid GitHub token")
