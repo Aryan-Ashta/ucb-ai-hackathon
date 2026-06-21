@@ -46,6 +46,11 @@ export default function QuizPage() {
   // burning API quota and setState'ing on an unmounted component.
   const ctrlRef = useRef<AbortController | null>(null);
 
+  // Progress is monotonically non-decreasing within a quiz session so the
+  // rail can't visibly shrink when navigating to the next concept (1→0 during
+  // load) or when retrying a failed answer (1→0.33 on reset).
+  const lastProgressRef = useRef(0);
+
   // Load (or reload, on "Next concept") the concept for this id.
   useEffect(() => {
     // Abort any in-flight grading from the previous concept before starting
@@ -162,13 +167,24 @@ export default function QuizPage() {
 
   /* ─── Render ─────────────────────────────────────────────────────────── */
 
-  if (phase === "loading") return <LoadingPanel />;
-  if (phase === "notfound" || !concept) return <NotFoundPanel />;
+  // Target progress for the current phase. `loading` collapses to 0.66 so
+  // the early-return branches below can use the same monotonic value.
+  const targetProgress = phase === "intro" ? 0.33 : phase === "result" ? 1 : 0.66;
 
-  const progress = phase === "intro" ? 0.33 : phase === "result" ? 1 : 0.66;
+  // The bar is monotonically non-decreasing within a session: it never
+  // shrinks when navigating to the next concept (1 → 0 during load) or
+  // when retrying a failed answer (1 → 0.33 on reset). The first render
+  // uses the ref's current value; subsequent renders advance only.
+  const displayedProgress = Math.max(targetProgress, lastProgressRef.current);
+  useEffect(() => {
+    if (targetProgress > lastProgressRef.current) lastProgressRef.current = targetProgress;
+  }, [targetProgress]);
+
+  if (phase === "loading") return <LoadingPanel progress={displayedProgress} />;
+  if (phase === "notfound" || !concept) return <NotFoundPanel progress={displayedProgress} />;
 
   return (
-    <Shell progress={progress}>
+    <Shell progress={displayedProgress}>
       <div className="flex-1 flex flex-col gap-7 pt-7 pb-4">
         {/* Concept + provenance, persistent across phases */}
         <ConceptEyebrow concept={concept} />
@@ -219,7 +235,7 @@ export default function QuizPage() {
         recState={rec.state}
         onOrbClick={handleOrbClick}
         onType={() => setPhase("typing")}
-        onNext={() => (nextId ? router.push(`/quiz/${nextId}`) : router.push("/dashboard"))}
+        onNext={() => (nextId ? router.push(`/quiz/${encodeURIComponent(nextId)}`) : router.push("/dashboard"))}
         onRetry={resetToIntro}
         passed={grade?.passed ?? false}
         hasNext={nextId != null}
