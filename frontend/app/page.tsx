@@ -5,6 +5,19 @@ import { signIn, signOut, useSession } from "next-auth/react";
 export default function Home() {
   const { data: session, status } = useSession();
 
+  // P1-F5: the dashboard bounces unauthenticated users to "/?callbackUrl=<path>"
+  // so we can send them back where they were headed after sign-in. Read the
+  // hint at click time (not render time) — that way we don't need a
+  // Suspense boundary for useSearchParams in this static page.
+  const signInWithCallback = () => {
+    const cb =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("callbackUrl") ??
+          "/dashboard"
+        : "/dashboard";
+    signIn("github", { callbackUrl: cb });
+  };
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-yellow-50 via-white to-orange-50">
       {/* Nav */}
@@ -32,7 +45,7 @@ export default function Home() {
             </div>
           ) : (
             <button
-              onClick={() => signIn("github")}
+              onClick={signInWithCallback}
               className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-gray-900 hover:bg-gray-700 text-white font-medium transition"
             >
               <GitHubIcon className="w-4 h-4" />
@@ -63,7 +76,7 @@ export default function Home() {
           </a>
         ) : (
           <button
-            onClick={() => signIn("github")}
+            onClick={signInWithCallback}
             className="flex items-center gap-3 px-8 py-4 rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-lg font-bold shadow-lg transition"
           >
             <GitHubIcon className="w-6 h-6" />

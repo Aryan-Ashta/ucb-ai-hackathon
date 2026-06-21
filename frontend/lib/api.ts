@@ -2,6 +2,10 @@
  * API layer. Talks to the FastAPI backend when NEXT_PUBLIC_BACKEND_URL is set;
  * serves mock responses when it's absent so the UI is fully demoable offline.
  * Swapping to the real backend is a single env var — no UI changes required.
+ *
+ * P1-F4: in production, refuse to start without NEXT_PUBLIC_BACKEND_URL set —
+ * the mock fallback is for local demos only. Falling back to mock in prod
+ * would silently leak users into the demo data path.
  */
 import { findMockConcept, mockGrade } from "./mock";
 import type { Concept, GradeRequest, GradeResult, TranscribeResult } from "./types";
@@ -11,6 +15,21 @@ export type { Concept, GradeResult };
 
 const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "").replace(/\/$/, "");
 export const USING_MOCK = BACKEND === "";
+
+// P1-F4: fail loud in production if the env var is missing. In development
+// we still allow mock mode so contributors can run the UI without a backend.
+if (
+  typeof process !== "undefined" &&
+  process.env.NODE_ENV === "production" &&
+  BACKEND === ""
+) {
+  throw new Error(
+    "NEXT_PUBLIC_BACKEND_URL is required in production. " +
+      "The mock fallback is for local demos only; running it in prod would " +
+      "silently route users into the demo data path. " +
+      "Set NEXT_PUBLIC_BACKEND_URL in frontend/.env.local and rebuild.",
+  );
+}
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

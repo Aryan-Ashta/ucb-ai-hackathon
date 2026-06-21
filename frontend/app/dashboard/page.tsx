@@ -218,7 +218,13 @@ export default function Dashboard() {
   const syncingRef = useRef(false);
 
   useEffect(() => {
-    if (status === "unauthenticated") router.replace("/");
+    // P1-F5: preserve the original path as callbackUrl so the user lands back
+    // here after signing in (instead of being dumped on / with no context).
+    if (status === "unauthenticated") {
+      const here = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
+      const cb = encodeURIComponent(here);
+      router.replace(`/?callbackUrl=${cb}`);
+    }
   }, [status, router]);
 
   // Manual + auto sync trigger. Caller passes the bearer token explicitly
