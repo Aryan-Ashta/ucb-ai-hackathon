@@ -16,6 +16,7 @@ import type { Concept } from "@/lib/types";
 const mockGetConcept = vi.fn();
 const mockTranscribeAudio = vi.fn();
 const mockGradeAnswer = vi.fn();
+const mockScheduleReview = vi.fn();
 const mockUseRecorder = vi.fn();
 
 vi.mock("next/navigation", () => ({
@@ -31,6 +32,7 @@ vi.mock("@/lib/api", () => ({
   getConcept: (...args: unknown[]) => mockGetConcept(...args),
   transcribeAudio: (...args: unknown[]) => mockTranscribeAudio(...args),
   gradeAnswer: (...args: unknown[]) => mockGradeAnswer(...args),
+  scheduleReview: (...args: unknown[]) => mockScheduleReview(...args),
   USING_MOCK: false,
 }));
 
@@ -171,6 +173,44 @@ describe("QuizPage / phase transitions", () => {
       expect(screen.getByText(/Nailed it/i)).toBeInTheDocument();
     });
     expect(mockGradeAnswer).toHaveBeenCalledOnce();
+  });
+
+  it("H1: fires scheduleReview after a successful grade with epoch timestamp", async () => {
+    const user = userEvent.setup();
+    setupReady();
+    const nextIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    mockGradeAnswer.mockResolvedValue({
+      passed: true,
+      quality: 5,
+      explanation: "Perfect",
+      next_review: nextIso,
+    });
+    mockScheduleReview.mockResolvedValue({ status: "scheduled" });
+
+    render(<QuizPage />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Answer out loud/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Prefer to type/i }));
+    await user.type(screen.getByRole("textbox"), "memoization caches results");
+    await user.click(screen.getByRole("button", { name: /Submit answer/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Nailed it/i)).toBeInTheDocument();
+    });
+
+    // H1 (Trace 2): the calendar hook must fire with (token, {concept_id, epoch_seconds}).
+    await waitFor(() => {
+      expect(mockScheduleReview).toHaveBeenCalledTimes(1);
+    });
+    const [token, body] = mockScheduleReview.mock.calls[0] as [
+      string,
+      { concept_id: string; next_review_timestamp: number },
+    ];
+    expect(token).toBe("test-token");
+    expect(body.concept_id).toBe("u_1:42:memoization");
+    expect(body.next_review_timestamp).toBe(Math.floor(Date.parse(nextIso) / 1000));
   });
 });
 

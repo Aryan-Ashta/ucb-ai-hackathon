@@ -1,6 +1,6 @@
 "use client";
 
-import { gradeAnswer, getConcept, transcribeAudio } from "@/lib/api";
+import { gradeAnswer, getConcept, scheduleReview, transcribeAudio } from "@/lib/api";
 import type { Concept, GradeResult } from "@/lib/types";
 import { isAbortError } from "@/lib/api-error";
 import { useRecorder } from "@/lib/useRecorder";
@@ -91,6 +91,17 @@ export default function QuizPage() {
         const g = await gradeAnswer({ user_id: userId, concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined, ctrl.signal);
         setGrade(g);
         setPhase("result");
+        // H1 (Trace 2): fire-and-forget the calendar-event hook after the grade
+        // lands. The backend returns {status: "failed", ...} with HTTP 200 on
+        // soft failures so this never throws into the UX. next_review is an
+        // ISO string from Claude; convert to epoch for the backend.
+        const nextTs = Date.parse(g.next_review);
+        if (!Number.isNaN(nextTs)) {
+          void scheduleReview(
+            session?.accessToken ?? "",
+            { concept_id: concept.id, next_review_timestamp: Math.floor(nextTs / 1000) },
+          );
+        }
       } catch (err: unknown) {
         if (isAbortError(err)) return;
         setErrorMsg("Something broke while scoring that. Try again in a moment.");
