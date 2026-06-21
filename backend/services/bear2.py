@@ -18,6 +18,7 @@ async def compress_diff(raw_diff: str) -> str:
     Uses accuracy-preserving mode to avoid stripping code semantics.
     """
     raw_tokens = count_tokens_approx(raw_diff)
+    compressed_tokens = count_tokens_approx("")
 
     try:
         async with httpx.AsyncClient() as client:
@@ -48,7 +49,6 @@ async def compress_diff(raw_diff: str) -> str:
         )
         return raw_diff  # graceful fallback
 
-    compressed_tokens = count_tokens_approx(compressed)
     reduction_pct = round((1 - compressed_tokens / max(raw_tokens, 1)) * 100, 1)
 
     sentry_sdk.add_breadcrumb(
