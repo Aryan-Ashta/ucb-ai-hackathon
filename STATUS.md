@@ -6,8 +6,7 @@
 **Verification:** `pytest` (67/67 pass, 88% backend coverage, 0 Sentry events leaked)
 
 > **This STATUS.md is rewritten from a second-pass audit on 2026-06-20.** Since the previous version (commit `cb52340`), **7 new commits** addressed all P0s and several P1s (see "Audit Trail" below). The finding lists below are split into **FIXED** (resolved by a commit since the last audit) and **STILL PRESENT** (still actionable before the demo).
->
-> **Note on P0-S1 (secrets leak at `0fe1aae7`):** the forward leak is blocked by `.gitignore` (`6d23f66`) and the repo has been confirmed private by the owner, so a `git filter-repo` history scrub is **not being performed**. Anyone who already has a clone can still recover the historical `.env` via `git show 0fe1aae7:frontend/.env` — rotation is the only durable mitigation if the leak was ever visible to a third party.
+
 
 ---
 
