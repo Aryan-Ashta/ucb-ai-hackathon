@@ -56,6 +56,10 @@ REDIS_TLS = os.environ.get("REDIS_TLS", "").lower() in ("1", "true", "yes")
 
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")  # empty disables Sentry transport
 POKE_API_KEY = _require("POKE_API_KEY")
+# P1-B7: calendar ID is server-side now (was a horizontal-privilege primitive
+# when read from the request body). For the demo this is a single env-supplied
+# default; production would resolve per-user from a Poke OAuth flow + Redis.
+POKE_USER_CALENDAR_ID = os.environ.get("POKE_USER_CALENDAR_ID", "")
 
 # Fernet key for at-rest encryption of user OAuth tokens in Redis.
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

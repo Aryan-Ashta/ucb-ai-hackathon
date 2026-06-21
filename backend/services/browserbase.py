@@ -1,4 +1,5 @@
 import json
+from typing import TypedDict
 
 import httpx
 import sentry_sdk
@@ -17,11 +18,28 @@ AUTHORITATIVE_SOURCES = [
 ]
 
 
-async def enrich_concept(concept: str, concept_id: str, user_id: str) -> str:
+class EnrichmentResult(TypedDict):
+    """P1-B8: structured result so callers can distinguish success from failure.
+
+    - ok=True:  snippet is populated (may be the fallback "A core CS concept: X"
+      string if the scrape succeeded but no paragraph was long enough).
+    - ok=False: snippet is empty; error is a short, non-PII string naming the
+      exception class. The full exception is captured to Sentry separately.
+    """
+
+    snippet: str
+    ok: bool
+    error: str | None
+
+
+async def enrich_concept(concept: str, concept_id: str, user_id: str) -> EnrichmentResult:
     """
     Scrape a documentation page for the given concept via Browserbase.
-    Appends enrichment to Redis quiz content. Returns the snippet string.
-    Returns "" on any failure (never propagates exceptions to the core loop).
+    Appends enrichment to Redis quiz content.
+
+    Returns a structured result (P1-B8): on any failure returns
+    `{snippet: "", ok: False, error: <class-name>}` instead of silently
+    returning an empty string. The router surfaces this shape to the client.
     """
     try:
         async with httpx.AsyncClient() as client:
@@ -62,10 +80,10 @@ async def enrich_concept(concept: str, concept_id: str, user_id: str) -> str:
         sentry_sdk.capture_exception(e)
         sentry_sdk.add_breadcrumb(
             category="browserbase",
-            message=f"Enrichment failed: {e}",
+            message=f"Enrichment failed: {type(e).__name__}",
             level="warning",
         )
-        return ""
+        return {"snippet": "", "ok": False, "error": type(e).__name__}
 
     r = await get_redis()
     enrich_key = f"concept:{user_id}:{concept_id}:enrichment"
@@ -81,4 +99,4 @@ async def enrich_concept(concept: str, concept_id: str, user_id: str) -> str:
         level="info",
     )
 
-    return snippet
+    return {"snippet": snippet, "ok": True, "error": None}

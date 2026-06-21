@@ -47,7 +47,7 @@ def test_post_enrich_returns_snippet(monkeypatch):
         assert concept == "memoization"
         assert concept_id == "abc:1:memoization"
         assert user_id == "99"
-        return "MDN snippet text"
+        return {"snippet": "MDN snippet text", "ok": True, "error": None}
 
     monkeypatch.setattr(enrich_router, "enrich_concept", fake_enrich_concept)
 
@@ -59,19 +59,21 @@ def test_post_enrich_returns_snippet(monkeypatch):
         headers={"Authorization": "Bearer ghp_test"},
     )
     assert r.status_code == 200
-    assert r.json() == {"snippet": "MDN snippet text"}
+    body = r.json()
+    assert body["snippet"] == "MDN snippet text"
+    assert body["ok"] is True
+    assert body["error"] is None
 
 
-def test_post_enrich_returns_empty_on_service_failure(monkeypatch):
-    """P1-B8: enrich_concept returns "" on any failure, and the router
-    propagates that empty string back to the client instead of erroring.
-    This test pins the current (silent-failure) behaviour — fixing the bug
-    is a separate change that should update this test, not delete it.
+def test_post_enrich_returns_error_envelope_on_service_failure(monkeypatch):
+    """P1-B8: enrich_concept returns a structured {snippet, ok, error}
+    envelope on any failure. The router propagates it as-is so the UI can
+    distinguish "no docs found" from "Browserbase is down".
     """
     from backend.routers import enrich as enrich_router
 
     async def fake_enrich_concept(concept, concept_id, user_id):
-        return ""
+        return {"snippet": "", "ok": False, "error": "ConnectError"}
 
     monkeypatch.setattr(enrich_router, "enrich_concept", fake_enrich_concept)
 
@@ -83,4 +85,7 @@ def test_post_enrich_returns_empty_on_service_failure(monkeypatch):
         headers={"Authorization": "Bearer ghp_test"},
     )
     assert r.status_code == 200
-    assert r.json() == {"snippet": ""}
+    body = r.json()
+    assert body["snippet"] == ""
+    assert body["ok"] is False
+    assert body["error"] == "ConnectError"

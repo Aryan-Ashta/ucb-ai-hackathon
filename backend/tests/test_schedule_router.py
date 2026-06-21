@@ -23,6 +23,17 @@ def _reset_overrides():
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _poke_calendar_id(monkeypatch):
+    """P1-B7: POKE_USER_CALENDAR_ID is server-side. Default to a stub for the
+    happy-path tests; individual tests can override the env or patch the
+    config module directly to exercise the unset / set / mismatch paths.
+    """
+    import backend.config as cfg
+
+    monkeypatch.setattr(cfg, "POKE_USER_CALENDAR_ID", "cal-server-default", raising=False)
+
+
 def _override_user(user_dict):
     """Install a stub get_current_user for the duration of one test."""
     async def _fake():
@@ -38,7 +49,6 @@ def test_post_schedule_review_requires_auth():
         json={
             "concept_id": "abc:1:memoization",
             "next_review_timestamp": 1_719_000_000,
-            "user_calendar_id": "cal-xyz",
         },
     )
     assert r.status_code == 401
@@ -61,7 +71,6 @@ def test_post_schedule_review_404_when_concept_not_in_redis(monkeypatch):
         json={
             "concept_id": "abc:1:memoization",
             "next_review_timestamp": 1_719_000_000,
-            "user_calendar_id": "cal-xyz",
         },
         headers={"Authorization": "Bearer ghp_test"},
     )
@@ -89,10 +98,12 @@ def test_post_schedule_review_returns_scheduled_event(monkeypatch):
     async def fake_schedule_review_block(
         concept_name, concept_id, next_review_timestamp, user_calendar_id
     ):
+        # P1-B7: calendar_id now comes from config (server-side), NOT the
+        # request body. Tests must pin to whatever _poke_calendar_id set.
         assert concept_name == "memoization"
         assert concept_id == "abc:1:memoization"
         assert next_review_timestamp == 1_719_000_000
-        assert user_calendar_id == "cal-xyz"
+        assert user_calendar_id == "cal-server-default"
         return fake_event
 
     monkeypatch.setattr(schedule_router, "get_quiz_content", fake_get_quiz_content)
@@ -105,7 +116,6 @@ def test_post_schedule_review_returns_scheduled_event(monkeypatch):
         json={
             "concept_id": "abc:1:memoization",
             "next_review_timestamp": 1_719_000_000,
-            "user_calendar_id": "cal-xyz",
         },
         headers={"Authorization": "Bearer ghp_test"},
     )
@@ -116,7 +126,11 @@ def test_post_schedule_review_returns_scheduled_event(monkeypatch):
 
 
 def test_post_schedule_review_validation_error_on_missing_field():
-    """Missing concept_id (and the other required fields) → 422 from Pydantic."""
+    """Missing concept_id + next_review_timestamp → 422 from Pydantic.
+
+    P1-B7: user_calendar_id is NO LONGER in the body schema; the server
+    resolves it from config.POKE_USER_CALENDAR_ID.
+    """
     _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
     client = TestClient(app)
     r = client.post(
@@ -125,11 +139,68 @@ def test_post_schedule_review_validation_error_on_missing_field():
         headers={"Authorization": "Bearer ghp_test"},
     )
     assert r.status_code == 422
-    # Pydantic's 422 payload lists the missing fields by name.
     missing = {err["loc"][-1] for err in r.json()["detail"]}
     assert "concept_id" in missing
     assert "next_review_timestamp" in missing
-    assert "user_calendar_id" in missing
+    assert "user_calendar_id" not in missing  # P1-B7: gone from schema
+
+
+def test_post_schedule_review_503_when_poke_calendar_unset(monkeypatch):
+    """P1-B7: if POKE_USER_CALENDAR_ID is empty in the env, refuse with 503
+    rather than silently dropping or letting the client supply one.
+    """
+    import backend.config as cfg
+    monkeypatch.setattr(cfg, "POKE_USER_CALENDAR_ID", "", raising=False)
+
+    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    client = TestClient(app)
+    r = client.post(
+        "/api/schedule-review",
+        json={
+            "concept_id": "abc:1:memoization",
+            "next_review_timestamp": 1_719_000_000,
+        },
+        headers={"Authorization": "Bearer ghp_test"},
+    )
+    assert r.status_code == 503
+    assert "POKE_USER_CALENDAR_ID" in r.json()["detail"]
+
+
+def test_post_schedule_review_ignores_body_supplied_calendar_id(monkeypatch):
+    """P1-B7 regression guard: even if a hostile client sends a user_calendar_id
+    in the body, the server must use the server-side value, not the body's.
+    Pydantic drops the extra field silently; the assertion is that the
+    Poke call gets `cal-server-default`, NOT whatever the client tried to send.
+    """
+    from backend.routers import schedule as schedule_router
+
+    async def fake_get_quiz_content(user_id, concept_id):
+        return {"concept": "memoization"}
+
+    seen = {}
+
+    async def fake_schedule_review_block(
+        concept_name, concept_id, next_review_timestamp, user_calendar_id
+    ):
+        seen["calendar_id"] = user_calendar_id
+        return {"id": "evt-1"}
+
+    monkeypatch.setattr(schedule_router, "get_quiz_content", fake_get_quiz_content)
+    monkeypatch.setattr(schedule_router, "schedule_review_block", fake_schedule_review_block)
+
+    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    client = TestClient(app)
+    r = client.post(
+        "/api/schedule-review",
+        json={
+            "concept_id": "abc:1:memoization",
+            "next_review_timestamp": 1_719_000_000,
+            "user_calendar_id": "cal-attacker-supplied",  # ignored
+        },
+        headers={"Authorization": "Bearer ghp_test"},
+    )
+    assert r.status_code == 200
+    assert seen["calendar_id"] == "cal-server-default"
 
 
 def test_post_schedule_review_poke_failure_returns_error_envelope(monkeypatch):
@@ -165,7 +236,6 @@ def test_post_schedule_review_poke_failure_returns_error_envelope(monkeypatch):
         json={
             "concept_id": "abc:1:memoization",
             "next_review_timestamp": 1_719_000_000,
-            "user_calendar_id": "cal-xyz",
         },
         headers={"Authorization": "Bearer ghp_test"},
     )
