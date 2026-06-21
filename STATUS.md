@@ -6,6 +6,8 @@
 **Verification:** `pytest` (67/67 pass, 88% backend coverage, 0 Sentry events leaked)
 
 > **This STATUS.md is rewritten from a second-pass audit on 2026-06-20.** Since the previous version (commit `cb52340`), **7 new commits** addressed all P0s and several P1s (see "Audit Trail" below). The finding lists below are split into **FIXED** (resolved by a commit since the last audit) and **STILL PRESENT** (still actionable before the demo).
+>
+> **Note on P0-S1 (secrets leak at `0fe1aae7`):** the forward leak is blocked by `.gitignore` (`6d23f66`) and the repo has been confirmed private by the owner, so a `git filter-repo` history scrub is **not being performed**. Anyone who already has a clone can still recover the historical `.env` via `git show 0fe1aae7:frontend/.env` — rotation is the only durable mitigation if the leak was ever visible to a third party.
 
 ---
 
@@ -39,8 +41,7 @@
 
 | Commit | Area | What changed | STATUS.md items resolved |
 |---|---|---|---|
-| `6d23f66` | secrets | `.gitignore` extended to cover bare `.env` (root + frontend) | P0-S2 |
-| (pre-audit, unrecorded) | secrets | `git filter-repo` removed all `.env` files from history — `git ls-files` no longer tracks any `.env`; `git log --all -- frontend/.env` is empty | P0-S1 |
+| `6d23f66` | secrets | `.gitignore` extended to cover bare `.env` (root + frontend); forward leak blocked (P0-S2). Repo confirmed private; history scrub not performed (see header note). | P0-S1 (forward), P0-S2 |
 | `cabe858` | backend | `bear2.py:21` hoists `compressed_tokens = count_tokens_approx("")` above the `try` block — fixes silent loss-of-compression bug | P0-B1 |
 | `19fe5f9` | backend | `claude.py` — `grade_answer` wrapped in try/except on JSON parse, swapped to `AsyncAnthropic`, quality clamped to `max(0, min(5, int(q)))` | P0-B2, P1-B1, P1-B4 |
 | `ef2497e` | backend | `test_claude.py` — full coverage of `grade_answer` (0% → 98%) | (test gap) |
@@ -167,7 +168,7 @@ frontend/
   tailwind.config.ts            Lists `./pages/**` and `./components/**` (dead globs)
   .env.local.example            Template — also lists backend-only secrets (misleading)
   .gitignore                    Bare `.env` + `.env*.local` ignored (FIXED)
-  .env                          NOT TRACKED — scrubbed via git filter-repo + gitignore
+  .env                          NOT TRACKED — `.gitignore` blocks re-tracking. Historical leak in `0fe1aae7` still recoverable from clones; accepted (repo private).
   .env.local.example            Template
 
 AGENTS/                         Plans (audit, demo-readiness, roadmap)
@@ -213,7 +214,7 @@ TTL: **7 days** on quiz/state/due/repos, **30 days** on encrypted_token.
 
 | ID | Resolution | Commit | Notes |
 |---|---|---|---|
-| **P0-S1** | Secrets scrubbed from history | (unrecorded) | `git ls-files` shows zero `.env` files; `git log --all -- frontend/.env` is empty. **Action still needed: rotate every secret listed in the leak** — scrubbing history doesn't invalidate them. |
+| **P0-S1** | Forward leak blocked; history scrub deferred | `6d23f66` (forward only) | `.gitignore` blocks re-tracking. The original leak in `0fe1aae7` is still in git history and recoverable via `git show 0fe1aae7:frontend/.env` from any existing clone — **deferred per owner decision** (repo confirmed private). Rotation is the durable mitigation if the leak was ever visible to a third party; not tracked here. |
 | **P0-S2** | `.gitignore` covers bare `.env` | `6d23f66` | Both root `.gitignore` (line 12) and `frontend/.gitignore` (line 30) ignore bare `.env`. |
 | **P0-B1** | `compressed_tokens` hoisted above `try` | `cabe858` | `bear2.py:21` now reads `compressed_tokens = count_tokens_approx("")` before the `try` block — the `or compressed_tokens` fallback can no longer hit `UnboundLocalError`. |
 | **P0-B2** | `grade_answer` JSON-parse hardened | `19fe5f9` | `claude.py:145-154` wraps `json.loads` in try/except; on failure returns `{passed: False, quality: 0, explanation: "Grading failed — please try again."}` and breadcrumbs the raw response. |
@@ -344,7 +345,7 @@ The token never touches `localStorage` / `sessionStorage` / `document.cookie` �
 
 - **The single remaining high-leverage backend cleanup is `claude.py`** — no more bugs there, but the `AsyncAnthropic` swap means **every other Claude call site inherits non-blocking behaviour for free**, and the test surface for `grade_answer` is now broad enough that future regressions will surface immediately.
 - **`schedule.py` and `enrich.py` are at 100% coverage but still have real bugs (P1-B7 IDOR, P1-B8 silent failure).** Coverage alone doesn't catch security or UX issues — needs review of the request shapes and error contracts.
-- **The secrets leak is recoverable only by rotation.** Git history has been scrubbed (no `.env` files in `git ls-files`), but every key listed in the original `.env` must be treated as compromised. If the repo went public, also notify GitHub/Anthropic/Deepgram/Token Company/Sentry.
+- **The original `frontend/.env` leak (commit `0fe1aae7`) is still recoverable from any existing clone** via `git show 0fe1aae7:frontend/.env`. Forward re-tracking is blocked by `.gitignore` (`6d23f66`); history scrub was **deferred per owner decision** because the repo is confirmed private. If the leak was ever visible to a third party, rotation is the only durable mitigation — out of scope here per the owner's call.
 - **The deployment-model pivot (Vercel → local) is now reflected in code.** CORS allowlist is `localhost` + `trycloudflare.com` regex; `render.yaml` is gone; `main.py` no longer references Vercel.
 - **The two routers with body-supplied identifiers (`schedule`, `enrich`) are now well-tested but the IDOR/silent-failure issues are still live.** Same root cause as last audit, lower priority because at least the happy path is locked down.
 - **Frontend test gap remains the single largest tech-debt item (P2-S4).** The quiz page alone is 597 lines with a 7-state machine — one typo breaks it silently.
@@ -394,9 +395,14 @@ cd frontend && bun run build
 curl -s http://localhost:8000/health
 curl -s -H "Authorization: Bearer <github-token>" http://localhost:8000/api/sync/status
 
-# Confirm secrets are scrubbed from history (both should print nothing)
-git ls-files | grep -E "^\.env$|/\.env$" | head
-git log --all --oneline -- frontend/.env
+# Confirm `.env` is not tracked (should print nothing — historical scrub deferred per owner)
+git ls-files | grep -E "^\.env$|/\.env$" || echo "clean (working tree)"
+
+# Confirm gitignore blocks re-tracking
+git check-ignore -v frontend/.env backend/.env
+
+# Confirm pytest is clean (no Sentry leak)
+.venv/bin/python -m pytest 2>&1 | grep -i "sentry is attempting" || echo "clean (no Sentry leak)"
 
 # Confirm Sentry is no-op in tests (pytest output should NOT contain this line)
 .venv/bin/python -m pytest 2>&1 | grep -i "sentry is attempting" || echo "clean"
