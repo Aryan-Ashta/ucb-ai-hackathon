@@ -168,14 +168,56 @@ async def test_get_redis_returns_same_instance():
 
 
 async def test_mark_pr_processed_and_list_roundtrip():
+    """After the commit-support refactor, list_processed_prs returns items
+    with a `source_type` discriminator and a unified `key` field (PR number
+    for PRs, short-SHA for commits). This pins the PR shape."""
     from backend.services.redis_client import mark_pr_processed, list_processed_prs
     await mark_pr_processed(
         "u1", repo="octocat/hello", pr_number=42, merged_at="2026-06-01T00:00:00Z"
     )
     prs = await list_processed_prs("u1")
     assert len(prs) == 1
-    assert prs[0]["pr_number"] == 42
+    assert prs[0]["source_type"] == "pr"
+    assert prs[0]["key"] == 42
     assert prs[0]["repo"] == "octocat/hello"
+    assert prs[0]["merged_at"] == "2026-06-01T00:00:00Z"
+
+
+async def test_mark_commit_processed_and_list_roundtrip():
+    """Pins the commit shape: source_type='commit', key=<short SHA>, committed_at."""
+    from backend.services.redis_client import list_processed_prs, mark_commit_processed
+    await mark_commit_processed(
+        "u1", repo="octocat/hello",
+        commit_sha="abc1234567890def", committed_at="2026-06-01T00:00:00Z",
+    )
+    items = await list_processed_prs("u1")
+    assert len(items) == 1
+    assert items[0]["source_type"] == "commit"
+    assert items[0]["key"] == "abc1234"  # first 7 chars of the SHA
+    assert items[0]["repo"] == "octocat/hello"
+    assert items[0]["committed_at"] == "2026-06-01T00:00:00Z"
+
+
+async def test_mixed_processed_prs_and_commits():
+    """Both kinds co-exist in the same HASH, distinguished by the 'c-' prefix."""
+    from backend.services.redis_client import (
+        list_processed_prs,
+        mark_commit_processed,
+        mark_pr_processed,
+    )
+    await mark_pr_processed("u1", repo="r1", pr_number=10, merged_at="t1")
+    await mark_commit_processed("u1", repo="r1",
+                                commit_sha="deadbeef0001", committed_at="t2")
+    await mark_pr_processed("u1", repo="r2", pr_number=11, merged_at="t3")
+    items = await list_processed_prs("u1")
+    assert len(items) == 3
+    by_type: dict[str, list[dict]] = {"pr": [], "commit": []}
+    for it in items:
+        by_type[it["source_type"]].append(it)
+    assert len(by_type["pr"]) == 2
+    assert {it["key"] for it in by_type["pr"]} == {10, 11}
+    assert len(by_type["commit"]) == 1
+    assert by_type["commit"][0]["key"] == "deadbee"  # first 7 chars of "deadbeef0001"
 
 
 async def test_get_last_sync_roundtrip():

@@ -20,6 +20,24 @@ REDIS_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days minimum
 
 _redis: aioredis.Redis | None = None
 
+
+def parse_concept_id(concept_id: str) -> tuple[int, str, str]:
+    """Extract (pr_number, commit_sha, source_type) from a concept_id.
+
+    Two valid shapes:
+      - PR:    "{user_id}:{pr_number}:{slug}"             → (int, "", "pr")
+      - commit:"{user_id}:c-{sha_short}:{slug}"         → (0, sha_short, "commit")
+
+    The "c-" prefix on commit ids is the disambiguator that lets a single
+    integer/string branch detect source_type without an extra Redis read.
+    """
+    parts = concept_id.split(":")
+    if len(parts) >= 3 and parts[1].isdigit():
+        return (int(parts[1]), "", "pr")
+    if len(parts) >= 3 and parts[1].startswith("c-"):
+        return (0, parts[1][2:], "commit")
+    return (0, "", "pr")
+
 # Connection options shared by both connect paths. A pooled, health-checked
 # client with tight timeouts keeps a long-lived link to Redis Cloud resilient:
 #   • socket_*_timeout  → fail fast on a dead/unreachable node instead of hanging
@@ -78,10 +96,16 @@ async def cache_quiz_content(user_id: str, concept: QuizConcept) -> None:
         "answer_hint": concept.answer_hint,
         "repo": concept.repo,
         "pr_title": concept.pr_title,
+        # P2: provenance — "pr" or "commit". Read back in get_due_concepts
+        # and get_quiz_content so the dashboard / quiz page can render the
+        # right card style and the quiz page can show the commit SHA on
+        # the result screen for commit-sourced concepts.
+        "source_type": concept.source_type,
+        "commit_sha": concept.commit_sha,
     }
 
     now = int(time.time())
-    next_review = now + 60  # due in 1 minute for first review (hackathon demo)
+    next_review = now  # immediately due on first sync
 
     initial_state = {
         "ease_factor": 2.5,
@@ -129,9 +153,7 @@ async def get_due_concepts(user_id: str) -> list[dict]:
         quiz = json.loads(quiz_raw)
         state = json.loads(state_raw)
 
-        # concept_id format: "{user_id}:{pr_number}:{slug}"
-        parts = concept_id.split(":")
-        pr_number = int(parts[1]) if len(parts) >= 3 and parts[1].isdigit() else 0
+        pr_number, commit_sha, source_type = parse_concept_id(concept_id)
 
         result.append({
             "id": concept_id,
@@ -149,6 +171,55 @@ async def get_due_concepts(user_id: str) -> list[dict]:
             "next_review": datetime.fromtimestamp(
                 state["next_review"], tz=timezone.utc
             ).isoformat(),
+            # P2: provenance for the dashboard rendering layer.
+            "source_type": source_type,
+            "commit_sha": commit_sha,
+        })
+
+    return result
+
+
+async def get_all_concepts(user_id: str) -> list[dict]:
+    """Return every synced concept for this user regardless of due status.
+
+    Used by the dashboard concept bank so reviewed concepts (scheduled for
+    the future) don't silently vanish from the inventory view.
+    """
+    r = await get_redis()
+    due_key = f"due:{user_id}"
+
+    all_concept_ids = await r.zrangebyscore(due_key, "-inf", "+inf")
+
+    result = []
+    for concept_id in all_concept_ids:
+        quiz_key = f"concept:{user_id}:{concept_id}:quiz"
+        state_key = f"concept:{user_id}:{concept_id}:state"
+        quiz_raw = await r.get(quiz_key)
+        state_raw = await r.get(state_key)
+        if not quiz_raw or not state_raw:
+            continue
+        quiz = json.loads(quiz_raw)
+        state = json.loads(state_raw)
+
+        pr_number, commit_sha, source_type = parse_concept_id(concept_id)
+
+        result.append({
+            "id": concept_id,
+            "concept": quiz["concept"],
+            "roast_text": quiz["roast_text"],
+            "question_text": quiz["question_text"],
+            "answer_hint": quiz["answer_hint"],
+            "repo": quiz.get("repo", ""),
+            "pr_title": quiz.get("pr_title", ""),
+            "pr_number": pr_number,
+            "ease_factor": state["ease_factor"],
+            "interval": state["interval"],
+            "repetitions": state["repetitions"],
+            "next_review": datetime.fromtimestamp(
+                state["next_review"], tz=timezone.utc
+            ).isoformat(),
+            "source_type": source_type,
+            "commit_sha": commit_sha,
         })
 
     return result
@@ -170,8 +241,7 @@ async def get_quiz_content(user_id: str, concept_id: str) -> dict | None:
     state_raw = await r.get(state_key)
     state = json.loads(state_raw) if state_raw else {"ease_factor": 2.5, "interval": 1, "repetitions": 0, "next_review": int(time.time())}
 
-    parts = concept_id.split(":")
-    pr_number = int(parts[1]) if len(parts) >= 3 and parts[1].isdigit() else 0
+    pr_number, commit_sha, source_type = parse_concept_id(concept_id)
 
     return {
         "id": concept_id,
@@ -188,6 +258,8 @@ async def get_quiz_content(user_id: str, concept_id: str) -> dict | None:
         "next_review": datetime.fromtimestamp(
             state["next_review"], tz=timezone.utc
         ).isoformat(),
+        "source_type": source_type,
+        "commit_sha": commit_sha,
     }
 
 
@@ -234,11 +306,47 @@ async def mark_pr_processed(user_id: str, *, repo: str, pr_number: int, merged_a
     await r.expire(key, REDIS_TTL_SECONDS)
 
 
+async def mark_commit_processed(user_id: str, *, repo: str, commit_sha: str, committed_at: str) -> None:
+    """Record that we ingested this commit, so a subsequent sync skips it.
+
+    Uses the same `user:{user_id}:prs` HASH as mark_pr_processed — keys are
+    disambiguated by a "c-" prefix (matching the concept_id scheme) so a
+    single Redis structure covers both PRs and commits without collision.
+    """
+    r = await get_redis()
+    key = f"user:{user_id}:prs"
+    item_key = f"c-{commit_sha[:7]}"
+    await r.hset(key, item_key, json.dumps({"repo": repo, "committed_at": committed_at}))
+    await r.expire(key, REDIS_TTL_SECONDS)
+
+
 async def list_processed_prs(user_id: str) -> list[dict]:
-    """All PRs we've previously ingested for this user, as [{pr_number, repo, merged_at}]."""
+    """All items (PRs and commits) we've previously ingested for this user.
+
+    Returns [{source_type, key, repo, merged_at|committed_at}]. `key` is
+    either the PR number (int) or the commit short-SHA (str, with the "c-"
+    prefix stripped) depending on source_type.
+    """
     r = await get_redis()
     raw = await r.hgetall(f"user:{user_id}:prs")
-    return [{"pr_number": int(k), **json.loads(v)} for k, v in raw.items()]
+    out: list[dict] = []
+    for k, v in raw.items():
+        payload = json.loads(v)
+        if k.startswith("c-"):
+            out.append({
+                "source_type": "commit",
+                "key": k[2:],  # strip "c-" prefix
+                "repo": payload["repo"],
+                "committed_at": payload.get("committed_at"),
+            })
+        else:
+            out.append({
+                "source_type": "pr",
+                "key": int(k),
+                "repo": payload["repo"],
+                "merged_at": payload.get("merged_at"),
+            })
+    return out
 
 
 async def get_last_sync(user_id: str) -> int | None:

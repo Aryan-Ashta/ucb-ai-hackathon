@@ -23,7 +23,7 @@ client = anthropic.AsyncAnthropic(
 MODEL = config.ANTHROPIC_MODEL
 
 SYSTEM_PROMPT = """You are VibeSchool, a savage but educational code reviewer.
-Given a GitHub PR diff, you:
+Given a GitHub diff (either a PR or a single commit), you:
 1. Identify 1-5 CS concepts or patterns that appear in the diff
 2. Write a roast of the code for each concept — be specific, reference actual code details, be funny but educational
 3. Write one quiz question per concept that tests understanding of that concept
@@ -54,8 +54,27 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+def _build_concept_id(user_id: str, source_id: int | str) -> tuple[str, str, str]:
+    """Build (concept_id_seed, source_type, commit_sha) from a source identifier.
+
+    A source_id is either:
+      - an int (PR number)            → source_type="pr",     commit_sha=""
+      - a string (full commit SHA)    → source_type="commit", commit_sha=<sha>
+
+    The concept_id seed is the per-source identifier that gets the slug
+    appended to form the full concept_id (e.g. "42:101:caching",
+    "42:c-abc1234:caching"). The "c-" prefix on commit ids prevents the
+    existing pr_number extraction in redis_client.py from choking — the
+    middle segment is "c-abc1234", not an int, so pr_number falls through
+    to 0 cleanly.
+    """
+    if isinstance(source_id, int):
+        return (f"{user_id}:{source_id}", "pr", "")
+    return (f"{user_id}:c-{source_id[:7]}", "commit", source_id)
+
+
 async def extract_concepts_and_cache(
-    raw_diff: str, user_id: str, pr_number: int,
+    raw_diff: str, user_id: str, source_id: int | str,
     repo: str = "", pr_title: str = "",
 ) -> list[QuizConcept]:
     """
@@ -64,7 +83,13 @@ async def extract_concepts_and_cache(
     2. Send to Claude for concept extraction
     3. Cache results in Redis
     Returns a list of QuizConcept objects.
+
+    `source_id` discriminates PR from commit:
+      - int   → PR number; concepts are tagged source_type="pr"
+      - str   → full commit SHA; concepts are tagged source_type="commit"
     """
+    concept_id_seed, source_type, commit_sha = _build_concept_id(user_id, source_id)
+
     with sentry_sdk.start_span(op="claude.extract", name="Concept extraction"):
         compressed_diff = await compress_diff(raw_diff)
 
@@ -76,7 +101,7 @@ async def extract_concepts_and_cache(
                 messages=[
                     {
                         "role": "user",
-                        "content": f"Extract concepts from this PR diff:\n\n{compressed_diff}",
+                        "content": f"Extract concepts from this diff:\n\n{compressed_diff}",
                     }
                 ],
             )
@@ -102,21 +127,23 @@ async def extract_concepts_and_cache(
             slug = item["concept"].lower().replace(" ", "_")
             concepts.append(
                 QuizConcept(
-                    concept_id=f"{user_id}:{pr_number}:{slug}",
+                    concept_id=f"{concept_id_seed}:{slug}",
                     concept=item["concept"],
                     roast_text=item["roast_text"],
                     question_text=item["question_text"],
                     answer_hint=item["answer_hint"],
                     repo=repo,
                     pr_title=pr_title,
+                    source_type=source_type,
+                    commit_sha=commit_sha,
                 )
             )
 
         sentry_sdk.add_breadcrumb(
             category="claude",
-            message=f"Extracted {len(concepts)} concepts from PR #{pr_number}",
+            message=f"Extracted {len(concepts)} concepts from {source_type} {source_id}",
             level="info",
-            data={"concepts": [c.concept for c in concepts]},
+            data={"concepts": [c.concept for c in concepts], "source_type": source_type},
         )
 
         for concept in concepts:

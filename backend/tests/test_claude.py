@@ -48,7 +48,7 @@ async def test_live_extraction():
         "+    return fib(n-1) + fib(n-2)\n"
     )
     concepts = await extract_concepts_and_cache(
-        sample_diff, user_id="test_user", pr_number=999
+        sample_diff, user_id="test_user", source_id=999
     )
     assert len(concepts) >= 1, "Expected at least 1 concept"
     for c in concepts:

@@ -80,7 +80,7 @@ async def test_full_pipeline_with_claude():
         "diff --git a/utils.py b/utils.py\n+def add(a, b):\n+    return a + b\n"
     )
     concepts = await extract_concepts_and_cache(
-        small_diff, user_id="stress_user", pr_number=1002
+        small_diff, user_id="stress_user", source_id=1002
     )
     assert isinstance(concepts, list)
     due = await get_due_concepts("stress_user")

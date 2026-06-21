@@ -143,3 +143,60 @@ async def fetch_pr_diff(token: str, repo_full_name: str, pr_number: int) -> str:
         message=f"Fetched diff for {repo_full_name}#{pr_number}: {len(r.text)} chars",
     )
     return r.text
+
+
+async def list_commits(
+    token: str, repo_full_name: str, *, since_iso: str | None = None, max_commits: int = 100
+) -> list[dict]:
+    """
+    Recent commits in this repo, newest first, capped at `max_commits` (default 100).
+
+    We bound the cap aggressively because solo repos with thousands of commits
+    would otherwise produce an explosion of Claude calls — one per commit. 100
+    is enough to demo the loop end-to-end for any single repo and keeps the
+    sync wall-clock under a minute for a typical repo.
+
+    No time-window filter: commits are inherently "recent" by their position
+    in the sorted-desc list, so a hard cap is the natural pagination bound.
+    (Unlike PRs, we don't paginate to a time floor — we just stop after
+    `max_commits`.) The MAX_PAGES safety bound still applies.
+    """
+    out: list[dict] = []
+    page = 1
+    while page <= MAX_PAGES and len(out) < max_commits:
+        r = await _request(
+            token,
+            f"{GITHUB_API_BASE}/repos/{repo_full_name}/commits",
+            params={
+                "per_page": min(100, max_commits - len(out)),
+                "page": page,
+            },
+        )
+        batch = r.json()
+        if not batch:
+            return out
+        out.extend(batch)
+        if len(batch) < 100:
+            return out  # last page
+        page += 1
+    return out
+
+
+async def fetch_commit_diff(token: str, repo_full_name: str, sha: str) -> str:
+    """Fetch the unified diff for a single commit. Returns the raw diff text.
+
+    The commit endpoint accepts the same `application/vnd.github.v3.diff`
+    media type as the PR endpoint, so we reuse the diff format and the
+    existing diff_parser.clean_diff pipeline.
+    """
+    r = await _request(
+        token,
+        f"{GITHUB_API_BASE}/repos/{repo_full_name}/commits/{sha}",
+        accept="application/vnd.github.v3.diff",
+    )
+    sentry_sdk.add_breadcrumb(
+        category="github_oauth",
+        level="info",
+        message=f"Fetched diff for {repo_full_name}@{sha[:7]}: {len(r.text)} chars",
+    )
+    return r.text
