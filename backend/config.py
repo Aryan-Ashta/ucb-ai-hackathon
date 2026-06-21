@@ -65,10 +65,6 @@ POKE_USER_CALENDAR_ID = os.environ.get("POKE_USER_CALENDAR_ID", "")
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 TOKEN_ENCRYPTION_KEY = _require("TOKEN_ENCRYPTION_KEY")
 
-# P1 — optional
-BROWSERBASE_API_KEY = os.environ.get("BROWSERBASE_API_KEY", "")
-BROWSERBASE_PROJECT_ID = os.environ.get("BROWSERBASE_PROJECT_ID", "")
-
 # Voyage AI embeddings (used by the vector_store RAG layer).
 # Empty VOYAGE_API_KEY → vector_store falls back to a deterministic
 # hash-based pseudo-embedding so tests + dev runs work without an

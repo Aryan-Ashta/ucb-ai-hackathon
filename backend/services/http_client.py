@@ -7,8 +7,7 @@ which opens a fresh TCP connection per call (no keep-alive benefit).
 After: each service gets a long-lived client at module load via
 `shared_client("name")` and reuses it across requests. The connection
 pool lives for the lifetime of the process — the win is real TCP/TLS
-keep-alive to the third-party APIs (Deepgram, Poke, Browserbase,
-GitHub, Bear-2).
+keep-alive to the third-party APIs (Deepgram, Poke, GitHub, Bear-2).
 
 Notes:
     • Tests mock at the service-level seam (`github_oauth._request`,

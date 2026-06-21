@@ -29,7 +29,6 @@ Every sponsor named below is wired into the actual running code path. The "where
 | **Redis Cloud** | `backend/services/redis_client.py` — single source of truth. SM-2 state per concept, pre-cached quiz content, due-queue ZSET, idempotency hash for processed PRs, Fernet-encrypted OAuth tokens (30-day TTL via `services/token_store.py`). 7-day TTL on everything else. | After grading, `due:{user_id}` ZSET advances; `/api/concepts` re-orders by urgency. | 29 tests, 100% coverage. TTL pinned on every key type. `update_sm2_state_quality_clamps_via_caller` is xfail (documents a real missing clamp). | "Core infra" | P0 |
 | **Interaction Co (Poke)** | `backend/services/poke.py` + `backend/routers/schedule.py` — `POST /api/schedule-review` schedules a 10-min "VibeSchool: review [concept]" block at the SM-2 next-review timestamp. | Submit a graded quiz → calendar event appears in the user's calendar. | **0 service-level tests.** Router test in `test_schedule_router.py` mocks `schedule_review_block` away. Failure raises uncaught → 500 (P1-PK). IDOR via body-supplied `user_calendar_id` (P1-B7). | "Tool integration depth" | P0 |
 | **Sentry** | `backend/sentry_init.py` + `frontend/instrumentation*.ts` — instrumented from hour one. Breadcrumbs on every Bear-2 call (token delta), every Claude call (concept count), every GitHub page (chars), every Redis write (state delta). `dsn=None` ⇒ no-op SDK. | Open Sentry dashboard → see real Bear-2 + Claude + GitHub breadcrumbs from the demo session. | `tests/conftest.py:sentry_test_safe` re-inits SDK with `dsn=None, traces_sample_rate=0, transport=None` — no pytest leak. 100% sample rates on the live SDK (cost concern, P2-B10). | "Reliability from day one; team execution" | P0 |
-| **Browserbase** | `backend/services/browserbase.py` + `backend/routers/enrich.py` — `POST /api/enrich` scrapes MDN/docs.python.org/wikipedia for the extracted concept and appends a snippet. | Trigger `/api/enrich` for a concept → first paragraph from MDN appears as "further reading". | **0 service-level tests.** Router test in `test_enrich_router.py` mocks `enrich_concept` away. Silent failure → returns `""` (P1-B8). 28% coverage on the service file. | "Any agent using the web powered by Browserbase" | **P1** — only attempt if all P0s are stable |
 
 **Out of integration scope:** no Postgres, no SQL, no Vercel, no Render, no Vector DB. Redis is the only persistent store. The app runs locally on the developer's laptop (backend on `:8000`, frontend on `:3000`); an optional `cloudflared` quick-tunnel can expose `:8000` for external demos. **No cloud-hosted runtime.**
 
@@ -105,7 +104,6 @@ QUIZ SESSION (real-time, when the user clicks 🎤 on a concept):
 | Task | Description | Status | Evidence |
 |---|---|---|---|
 | A6 | Poke API calendar integration | ✅ Code-complete (`/api/schedule-review` works); **43% test coverage** on the service (no failure-mode tests); **P1-B7 IDOR still open** (calendar ID comes from request body). | `backend/services/poke.py`, `backend/routers/schedule.py` |
-| A7 | Browserbase docs enrichment (P1) | ✅ Code-complete but **silent on failure** (P1-B8); **28% test coverage** on the service. | `backend/services/browserbase.py`, `backend/routers/enrich.py` |
 | A8 | E2E stress test | ✅ One full pipeline hermetic test (`test_full_pipeline_with_claude`, 98% cov) + one with real Claude (`test_review_loop_hermetic`, gated). The full sync → quiz → grade → reschedule round-trip works in tests. | `backend/tests/test_e2e.py` |
 | S6 | Mascot + UI polish | ⚠️ Mascot (banana duck) is **not in this repo** — out of scope, see "Out of scope" below. UI polish shipped: dark + marigold design system on dashboard + quiz pages. | `frontend/app/page.tsx`, `dashboard/page.tsx`, `quiz/[id]/page.tsx` |
 | S7 | Sentry dashboard review | ⚠️ Code is instrumented; actual dashboard review is a manual task for the team. | — |
@@ -143,7 +141,6 @@ ucb-ai-hackathon/
 │   │   ├── concepts.py          ← GET /api/concepts, GET /api/concepts/{concept_id}
 │   │   ├── quiz.py              ← POST /api/transcribe (capped), POST /api/grade
 │   │   ├── schedule.py          ← POST /api/schedule-review (calendar IDOR open)
-│   │   └── enrich.py            ← POST /api/enrich (silent on failure)
 │   ├── dependencies/auth.py     ← get_current_user — GitHub bearer + 60s in-proc cache
 │   ├── services/
 │   │   ├── redis_client.py      ← SM-2 + cache, key schema below
@@ -154,7 +151,6 @@ ucb-ai-hackathon/
 │   │   ├── bear2.py             ← compress_diff (fallback to raw on failure)
 │   │   ├── deepgram_stt.py      ← transcribe_audio (nova-2 REST)
 │   │   ├── poke.py              ← schedule_review_block (43% cov)
-│   │   ├── browserbase.py       ← enrich_concept (28% cov, silent-failure)
 │   │   ├── diff_parser.py       ← clean_diff (fetch_and_parse_diff is dead code)
 │   │   └── sm2.py               ← pure SM-2 (DEMO_MODE=True, no env toggle)
 │   ├── scripts/check_redis.py   ← live-Redis smoke test (0% cov, standalone)
@@ -256,7 +252,6 @@ open http://localhost:3000          # → click "Sign in with GitHub"
 | `test_live_extraction` flakes | Low | Low | Documented as a known-flaky live test in `STATUS.md`. The hermetic `test_full_pipeline_with_claude` covers the same path with a mock. |
 | CORS rejection during cloudflared demo | Low | Medium | `main.py:16` regex allows `https://*.trycloudflare.com`; set `NEXT_PUBLIC_BACKEND_URL` to the tunnel URL after `./start-local.sh`. |
 | Redis Cloud quota exceeded mid-demo | Very low | High | `backend/scripts/check_redis.py` is a smoke check; keys carry 7-day TTLs so quota resets naturally. |
-| Browserbase quota exceeded | Low | Low | `enrich_concept` returns `""` silently; the quiz flow still works without enrichment (it's P1, not on the demo critical path). |
 
 ---
 

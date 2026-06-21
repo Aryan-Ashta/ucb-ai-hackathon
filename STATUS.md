@@ -24,7 +24,6 @@
 | Backend | `POST /api/transcribe` with **10 MB cap + content-type allow-list** (P1-S3 fixed) | `pytest backend/tests/test_transcribe_limits.py` → 4/4 PASSED |
 | Backend | `POST /api/grade` → Claude grader → SM-2 update | `pytest backend/tests/test_quiz_router.py` → 4/4 PASSED |
 | Backend | `POST /api/schedule-review` → Poke calendar block | `pytest backend/tests/test_schedule_router.py` → 4/4 PASSED |
-| Backend | `POST /api/enrich` → Browserbase snippet | `pytest backend/tests/test_enrich_router.py` → 3/3 PASSED |
 | Backend | Bear-2 compression: correct API contract, correct token-count handling (P0-B1 fixed in `cabe858`) | `pytest backend/tests/test_bear2.py` → 3/3 PASSED |
 | Backend | AsyncAnthropic on both extraction + grading (P1-B1 fixed in `19fe5f9`) | `pytest backend/tests/test_claude.py` → 7/8 PASSED (1 flaky live test) |
 | Backend | Quality clamped to `[0,5]` at the grader boundary (P1-B4 fixed in `19fe5f9`) | `pytest backend/tests/test_claude.py::test_grade_answer_quality_clamped_*` |
@@ -50,7 +49,6 @@
 |---|---|---|---|
 | Backend | `test_live_extraction` (live test against real Claude) returns 0 concepts ~50% of the time. **Flaky live test, not a code bug** — Claude/TokeRouter sometimes returns an unparseable response on the trivial `fib.py` sample diff. The hermetic `test_full_pipeline_with_claude` covers the same path with a mock and passes reliably. | `backend/tests/test_claude.py:36-58` | **LOW** — live-only; hermetic coverage is green |
 | Backend | `user_calendar_id` comes from request body → horizontal-privilege primitive (P1-B7, **still open**) | `backend/routers/schedule.py:15,29` | **P1** |
-| Backend | `enrich_concept` returns `""` on failure; router returns `{"snippet": ""}` with no error indicator (P1-B8, **still open**) | `backend/routers/enrich.py:25`, `backend/services/browserbase.py:24` | **P1** |
 | Backend | `update_sm2_state` raises bare `ValueError` if concept `:state` key TTL'd out mid-quiz → router surfaces 500 (P2-B8, **still open**) | `backend/services/redis_client.py:149`, called from `routers/quiz.py:85` | **P2** |
 | Backend | `transcribe_audio` raises uncaught exceptions on any Deepgram failure (auth, network, 5xx) — propagates to router → **500 to the user** (no graceful fallback; the size cap + MIME allow-list on the router don't help here because the failure happens after those gates pass). | `backend/services/deepgram_stt.py:32`, called from `routers/quiz.py:56` | **P1** |
 | Backend | `schedule_review_block` raises uncaught exceptions on any Poke failure — propagates to router → **500 to the user**. No try/except wrapper, no graceful fallback. | `backend/services/poke.py:44`, called from `routers/schedule.py:25` | **P1** |
@@ -62,9 +60,9 @@
 | Backend | `get_due_concepts` is N+1 (1 zrange + 2N gets); 30 due concepts = 61 round-trips (P2-B1, **still open**) | `backend/services/redis_client.py:104-127` | **P2** |
 | Backend | `DEMO_MODE = True` is a hard-coded module constant; no `VIBESCHOOL_DEMO_MODE` env override (P2-B2, **still open**) | `backend/services/sm2.py:6` | **P2** |
 | Backend | Sentry sample rates at 100% — burns quota and may include PII in spans (P2-B10, **still open**) | `backend/sentry_init.py:9-10` | **P2** |
-| Backend | Per-request `httpx.AsyncClient()` in 6 services (P1-B9, **still open**) | `auth.py:47`, `bear2.py:24`, `deepgram_stt.py:21`, `poke.py:34`, `browserbase.py:27`, `github_oauth.py:48` | **P2** |
+| Backend | Per-request `httpx.AsyncClient()` in 5 services (P1-B9, **still open**) | `auth.py:47`, `bear2.py:24`, `deepgram_stt.py:21`, `poke.py:34`, `github_oauth.py:48` | **P2** |
 | Backend | `requirements.txt` has 9 unpinned deps (P2-B6, **still open**) | `backend/requirements.txt` | **P2** |
-| Backend | Hardcoded `ghp_test` / `ghp_xyz` / `ghp_cached` literals in tests — may trigger GitHub secret scanner (P2-B4, **still open**) | `backend/tests/test_auth.py`, `test_quiz_router.py`, `test_sync_router.py`, `test_schedule_router.py`, `test_enrich_router.py`, `test_sync.py`, `test_github_oauth.py` | **P2** |
+| Backend | Hardcoded `ghp_test` / `ghp_xyz` / `ghp_cached` literals in tests — may trigger GitHub secret scanner (P2-B4, **still open**) | `backend/tests/test_auth.py`, `test_quiz_router.py`, `test_sync_router.py`, `test_schedule_router.py`, `test_sync.py`, `test_github_oauth.py` | **P2** |
 | Backend | No `logging.basicConfig` — silent failures when `SENTRY_DSN` empty in prod (P2-S2, **still open**) | `backend/main.py`, `backend/config.py` | **P2** |
 | Backend | `pat.replace("*", "") in filename` is brittle glob match (P2-B9, **still open**) | `backend/services/diff_parser.py:69` | **P3** |
 | Frontend | **Zero frontend tests.** The 6-state quiz machine is the highest-leverage thing to cover (P2-S4, **still open**) | `frontend/` (no `vitest.config.*`, no `__tests__/`) | **P2** |
@@ -146,7 +144,6 @@ TOTAL  (clean main, no in-flight refactor)  1664    178    89%
 |---|---|---|---|---|
 | `routers/sync.py` | 14 | 0 | 100% | ✅ |
 | `routers/concepts.py` | 9 | 0 | **100%** | ✅ (was 75% before `8890e59`) |
-| `routers/enrich.py` | 12 | 0 | 100% | ✅ |
 | `routers/schedule.py` | 16 | 0 | 100% | ✅ |
 | `routers/quiz.py` | 28 | 0 | **100%** | ✅ (was 75%; transcribe limits + error paths now covered) |
 | `services/sm2.py` | 22 | 0 | 100% | ✅ |
@@ -159,7 +156,6 @@ TOTAL  (clean main, no in-flight refactor)  1664    178    89%
 | `services/diff_parser.py` | 37 | 13 | 65% | ⚠️ mostly `fetch_and_parse_diff` (dead code) |
 | `services/poke.py` | 14 | 8 | **43%** | ⚠️ **no failure-mode tests** |
 | `services/deepgram_stt.py` | 13 | 8 | **38%** | ⚠️ **no failure-mode tests** |
-| `services/browserbase.py` | 29 | 21 | **28%** | ⚠️ **no failure-mode tests** |
 | `dependencies/auth.py` | 39 | 5 | 87% | ✅ |
 | `scripts/check_redis.py` | 39 | 39 | 0% | (standalone script, fine) |
 | `tests/conftest.py` | 20 | 0 | 100% | ✅ |
@@ -181,7 +177,6 @@ TOTAL  (clean main, no in-flight refactor)  1664    178    89%
 | POST | `/api/transcribe` | `routers/quiz.py:21` | bearer | Deepgram; **10 MB cap, content-type allow-list, empty-body check** (P1-S3 fix) |
 | POST | `/api/grade` | `routers/quiz.py:71` | bearer | Claude grades + SM-2 update; quality clamped; JSON-parse-hardened |
 | POST | `/api/schedule-review` | `routers/schedule.py:18` | bearer | Takes `user_calendar_id` from body (**P1-B7 IDOR still open**) |
-| POST | `/api/enrich` | `routers/enrich.py:16` | bearer | Browserbase; **silently returns empty on failure** (P1-B8 still open) |
 
 ---
 
@@ -215,7 +210,6 @@ All P0 items from the previous STATUS.md are resolved. The two unfixed P0-equiva
 | ~~**P1-B2**~~ | `dependencies/auth.py:14,75` | _closed in `781fc26` — `cachetools.TTLCache(maxsize=10000, ttl=60)`_ | 15 min | ✅ **DONE** |
 | ~~**P1-B3**~~ | `dependencies/auth.py:69-73` | _closed in `781fc26` — `capture_exception` + `token_persistence_failed` breadcrumb_ | 5 min | ✅ **DONE** |
 | ~~**P1-B7**~~ | `routers/schedule.py:15,29` | _closed in `3d8ee11` — server-side `POKE_USER_CALENDAR_ID` from env; 503 if unset; body value silently ignored_ | 30 min | ✅ **DONE** |
-| ~~**P1-B8**~~ | `routers/enrich.py:25` + `services/browserbase.py:24` | _closed in `3d8ee11` — `enrich_concept` returns `{snippet, ok, error}` TypedDict_ | 10 min | ✅ **DONE** |
 | ~~**P1-DG**~~ | `services/deepgram_stt.py:32`, called from `routers/quiz.py:56` | _closed in `dbe9e7d` — try/except at router layer returns `{transcript:"", error:"..."}` instead of 500_ | 5 min | ✅ **DONE** |
 | ~~**P1-PK**~~ | `services/poke.py:44`, called from `routers/schedule.py:25` | _closed in `dbe9e7d` — try/except at router layer returns `{status:"failed", error:"..."}` instead of 500_ | 5 min | ✅ **DONE** |
 | ~~**P1-F4**~~ | `lib/api.ts:12` | _closed in `ecde1a5` — throws at module load if `NODE_ENV=production && !BACKEND`_ | 5 min | ✅ **DONE** |
@@ -284,7 +278,7 @@ All P0 items from the previous STATUS.md are resolved. The two unfixed P0-equiva
 - Database (Postgres etc.) — Redis-only is appropriate for the demo.
 - New auth library — NextAuth + GitHub bearer is correct.
 - Backend framework change — FastAPI is doing the job.
-- Backend test framework change — pytest + fakeredis is the right setup; just needs failure-path tests for `poke`, `browserbase`, `deepgram_stt`, and `bear2`'s fallback.
+- Backend test framework change — pytest + fakeredis is the right setup; just needs failure-path tests for `poke`, `deepgram_stt`, and `bear2`'s fallback.
 - Production-grade Sentry config — 100% sample rates are fine for a 2-day hackathon with low traffic. (Lower them if you ship this beyond the hackathon — P2-B10.)
 - Cron-based background sync — user-triggered `POST /api/sync` is correct for the demo.
 - Deepgram TTS — out of scope; STT alone is enough for the demo loop.
@@ -336,11 +330,10 @@ git ls-files | grep -E "^\.env$|/\.env$" || echo "clean (working tree)"
 | A4 | SM-2 + Redis scheduler | ✅ Complete (P2 — `DEMO_MODE` no env toggle; quality-clamp test pinned) |
 | A5 | Deepgram STT + Claude grader | ✅ Complete (P0 — `grade_answer` hardened in `19fe5f9`; async client; /api/transcribe limits in `f66d326`) |
 | A6 | Poke calendar integration | ✅ Code-complete (P1 — IDOR via body-supplied calendar ID; 43% coverage) |
-| A7 | Browserbase enrichment (P1) | ✅ Code-complete (P1 — silent failure; 28% coverage) |
 | A8 | Frontend landing + dashboard UI | ✅ Complete |
 | — | Frontend ↔ backend integration | ✅ Complete (commit `82f2237`) |
 | — | Bearer token wiring | ✅ Complete (commit `82f2237`) |
-| — | Tests for `schedule-review` and `enrich` routers | ✅ Complete (commit `e13a30c`) |
+| — | Tests for `schedule-review` router | ✅ Complete (commit `e13a30c`) |
 | — | `grade_answer` test coverage | ✅ Complete (commit `ef2497e`) |
 | — | `/api/concepts/:id` single-concept endpoint | ✅ Complete (commit `8890e59`) |
 | — | `/api/transcribe` size cap + content-type allow-list | ✅ Complete (commit `f66d326`) |
@@ -414,7 +407,7 @@ The fifth audit pass was a **structural refactor** with three tiers — pure str
 ### Tier 2 — Tightening the boundaries
 6. **`backend/services/concept_ids.py`** — owned both halves of the `concept_id` contract (encoder + decoder + fast-path filters) in one module. `ConceptIdParts` dataclass replaces raw tuple. +13 vitest cases (named test_concept_ids.py).
 7. **`_parse_json_envelope` in claude.py** — single helper used by both extraction + grading. Includes isinstance check on parsed result (catches wrong-shape responses, not just malformed JSON). +7 vitest cases (named test_claude_envelope.py).
-8. **`backend/services/http_client.py` (P1-B9)** — process-wide shared `httpx.AsyncClient` per service. Replaces 6 `async with httpx.AsyncClient() as client:` patterns with module-level singletons. Real TCP keep-alive to Deepgram/Poke/Browserbase/GitHub/Bear-2. +4 vitest cases (named test_http_client.py).
+8. **`backend/services/http_client.py` (P1-B9)** — process-wide shared `httpx.AsyncClient` per service. Replaces 5 `async with httpx.AsyncClient() as client:` patterns with module-level singletons. Real TCP keep-alive to Deepgram/Poke/GitHub/Bear-2. +4 vitest cases (named test_http_client.py).
 
 ### Tier 3 — Drive-by debt closure
 9. **P2-B1** — `_load_concept_envelopes_bulk` pipelines the 2N GETs in `get_due_concepts` + `get_all_concepts`. 61 round-trips → 2 for a 30-concept queue.

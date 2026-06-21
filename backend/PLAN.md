@@ -27,7 +27,6 @@ Reference doc for executing `AGENTS/vibeschool_agent_plan.md`.
 | `routers/concepts.py` | Stub: `GET /api/concepts/{user_id}` — placeholder, return 501 |
 | `routers/quiz.py` | POST `/api/transcribe` (audio → STT) and POST `/api/grade` (transcript → Claude grader + SM-2) |
 | `routers/schedule.py` | POST `/api/schedule-review` — Poke API calendar event at SM-2 next_review |
-| `routers/enrich.py` | P1 only — POST `/api/enrich` → Browserbase MDN scrape → snippet |
 
 ### Services
 | File | Purpose |
@@ -39,7 +38,6 @@ Reference doc for executing `AGENTS/vibeschool_agent_plan.md`.
 | `services/sm2.py` | `sm2_next(state, quality)` — pure SM-2 algorithm; `DEMO_MODE=True` (1 day = 60 sec) |
 | `services/deepgram_stt.py` | `transcribe_audio(audio_bytes, mimetype)` — Deepgram `nova-2` REST |
 | `services/poke.py` | `schedule_review_block(...)` — Poke API event creation |
-| `services/browserbase.py` | P1 — `enrich_concept(...)` — Browserbase session → MDN fetch → Redis snippet |
 
 ### Tests
 | File | Purpose |
@@ -84,9 +82,7 @@ P0 — complete in order, each task depends on previous
   → run tests/test_e2e.py        (requires local Redis)
 
 P1 — only after ALL A1–A6 acceptance criteria pass
-  A7a: services/browserbase.py
-  A7b: routers/enrich.py
-  → wire enrich.py into main.py
+  _(no P1 tasks planned — A1–A6 cover the demo path)_
 ```
 
 **Recommended single-sitting order:**
@@ -180,14 +176,6 @@ python-multipart
 - [ ] Event start matches `next_review_timestamp`
 - [ ] Sentry breadcrumb with event_id and concept_id
 
-### A7 (P1) — Browserbase Enrichment
-- [ ] Only start after A1–A6 all pass
-- [ ] Returns snippet >= 50 chars for common concepts
-- [ ] Snippet from authoritative source (MDN / Python docs / Wikipedia)
-- [ ] Stored at `concept:{user_id}:{concept_id}:enrichment` with TTL >= 604800
-- [ ] On failure → returns `""` (no exception propagates)
-- [ ] POST `/api/enrich` returns `{snippet: str}`
-
 ### A8 — End-to-End
 - [ ] Small diff cycle completes without exception
 - [ ] Large diff cycle completes without exception
@@ -209,9 +197,6 @@ These are best-guess placeholders. Verify against live docs before first call.
 | Bear-2 response field | `response.json()["compressed_text"]` | Token Company docs | key in `bear2.py` |
 | Poke API base | `https://api.interaction.co/v1` | Interaction Co workshop Sat AM | `POKE_API_BASE` in `poke.py` |
 | Poke event schema | `{title, description, start, duration_minutes, calendar_id}` | Same | `event_payload` in `poke.py` |
-| Browserbase base | `https://api.browserbase.com/v1` | docs.browserbase.com | `BROWSERBASE_API_BASE` in `browserbase.py` |
-| Browserbase auth | `x-bb-api-key` header | Browserbase docs | header in `browserbase.py` |
-| Browserbase project ID | `{"projectId": "..."}` | Browserbase dashboard | add `BROWSERBASE_PROJECT_ID` env var |
 
 **Before first Bear-2 call:** Run a manual `curl` with a short test string to confirm URL, request shape, and response key.
 
@@ -227,6 +212,6 @@ These are best-guess placeholders. Verify against live docs before first call.
 - Every Redis write must include `ex=REDIS_TTL_SECONDS` (= 604800)
 - Claude prompts must say "Respond ONLY with valid JSON, no markdown fences"
 - `DEMO_MODE = True` in `sm2.py` until after judging
-- Bear-2 and Browserbase must use try/except with graceful fallbacks — never abort ingestion
-- P1 (A7) must not start until A1–A6 all pass acceptance criteria
+- Bear-2 must use try/except with graceful fallback — never abort ingestion
+- P1 tasks must not start until A1–A6 all pass acceptance criteria
 - Never call `FLUSHDB` in production — only on the local demo Redis instance
