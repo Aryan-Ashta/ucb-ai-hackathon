@@ -175,9 +175,13 @@ async def list_commits(
         batch = r.json()
         if not batch:
             return out
-        out.extend(batch)
-        if len(batch) < 100:
-            return out  # last page
+        # Defensive truncation: GitHub's API may return up to 100 items even
+        # when per_page asks for fewer. Truncate here so `out` never exceeds
+        # `max_commits` regardless of API behaviour.
+        remaining = max_commits - len(out)
+        out.extend(batch[:remaining])
+        if len(batch) < 100 or len(out) >= max_commits:
+            return out  # last page OR cap reached
         page += 1
     return out
 

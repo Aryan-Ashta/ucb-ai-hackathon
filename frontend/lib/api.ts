@@ -84,6 +84,12 @@ export interface ListDueResponse {
   count: number;
 }
 
+export interface ListAllResponse {
+  user_id: string;
+  concepts: Concept[];
+  count: number;
+}
+
 export interface SyncSummary {
   status: string;
   repos_seen: number;
@@ -102,6 +108,9 @@ export interface SyncTriggerResponse {
 export const api = {
   listDueConcepts: (token: string, signal?: AbortSignal) =>
     apiFetch<ListDueResponse>("/api/concepts", { accessToken: token, ...(signal ? { signal } : {}) }),
+
+  listAllConcepts: (token: string, signal?: AbortSignal) =>
+    apiFetch<ListAllResponse>("/api/concepts/all", { accessToken: token, ...(signal ? { signal } : {}) }),
 
   getConceptById: (token: string, conceptId: string, signal?: AbortSignal) =>
     apiFetch<{ user_id: string; concept: Concept }>(

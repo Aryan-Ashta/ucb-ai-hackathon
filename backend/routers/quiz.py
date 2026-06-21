@@ -1,5 +1,6 @@
 import httpx
 import sentry_sdk
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -100,7 +101,7 @@ async def grade(req: GradeRequest, user=Depends(get_current_user)):
         "passed": result["passed"],
         "quality": result["quality"],
         "explanation": result["explanation"],
-        "next_review": next_review,
+        "next_review": datetime.fromtimestamp(next_review, tz=timezone.utc).isoformat(),
     }
 
 

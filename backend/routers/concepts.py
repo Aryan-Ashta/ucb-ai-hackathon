@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.dependencies.auth import get_current_user
-from backend.services.redis_client import get_due_concepts, get_quiz_content
+from backend.services.redis_client import get_all_concepts, get_due_concepts, get_quiz_content
 
 router = APIRouter()
 
@@ -11,6 +11,17 @@ async def list_due_concepts(user=Depends(get_current_user)):
     """Return all concepts currently due for review for the signed-in user."""
     due = await get_due_concepts(user["id"])
     return {"user_id": user["id"], "due": due, "count": len(due)}
+
+
+@router.get("/concepts/all")
+async def list_all_concepts(user=Depends(get_current_user)):
+    """Return every synced concept for the signed-in user, regardless of due status.
+
+    Used by the dashboard concept bank so reviewed concepts scheduled for
+    the future don't disappear from the user's inventory.
+    """
+    concepts = await get_all_concepts(user["id"])
+    return {"user_id": user["id"], "concepts": concepts, "count": len(concepts)}
 
 
 @router.get("/concepts/{concept_id}")
