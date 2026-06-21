@@ -241,10 +241,10 @@ All P0 items from the previous STATUS.md are resolved. The two unfixed P0-equiva
 | **P2-B6** | `requirements.txt` | 9 unpinned deps — pin to known-good versions. | 15 min |
 | **P2-B7** | `services/github_oauth.py:60-82` | `list_user_repos` still doesn't honor `MAX_PAGES=50`. | 5 min |
 | **P2-F2** | `lib/api.ts:57` | `apiFetch<T>` returns `as T` cast — Zod parse for runtime validation. | 30 min |
-| **P2-F5** | `app/global-error.tsx` | Stock `<NextError statusCode={0} />` with no message — inline `error.digest` + Reload button. | 10 min |
+| **P2-F5** | `app/global-error.tsx` | _closed in `0575b92` — proper App Router global-error with own `<html>`/`<body>` + inline-styled fallback (P2-F5 also drove the package.json dev-script fix that made `bun dev` robust against shell `NODE_ENV=production`)_ | ✅ **DONE** |
 | **P2-F6** | `dashboard/page.tsx:76-91` | Raw backend body still in `console.warn` — log to Sentry only. | 5 min |
 
-**P2 closed this cycle: 7. Open: 6 (down from 10).** The largest remaining items (B6 pin, F2 Zod, S4 done) are post-hackathon hardening.
+**P2 closed this cycle: 8. Open: 5 (down from 10).** The largest remaining items (B6 pin, F2 Zod) are post-hackathon hardening.
 
 ### P3 — style / nits (4 open)
 
