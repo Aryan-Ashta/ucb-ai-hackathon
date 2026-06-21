@@ -105,6 +105,30 @@ def test_post_transcribe_415_when_unsupported_mime(fake_redis, monkeypatch):
     assert "unsupported audio format" in r.json()["detail"].lower()
 
 
+def test_post_transcribe_200_when_webm_codecs_opus(fake_redis, monkeypatch):
+    """Browsers send audio/webm;codecs=opus — normalize before allowlist check."""
+    seen_mime = {}
+
+    async def fake_transcribe(audio_bytes, mimetype="audio/webm"):
+        seen_mime["value"] = mimetype
+        assert mimetype == "audio/webm"
+        return "heard you"
+
+    from backend.routers import quiz as quiz_router
+    monkeypatch.setattr(quiz_router, "transcribe_audio", fake_transcribe)
+
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
+    client = TestClient(app)
+    r = client.post(
+        "/api/transcribe",
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
+        files={"audio": ("answer.webm", _audio_bytes(), "audio/webm;codecs=opus")},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"transcript": "heard you"}
+    assert seen_mime["value"] == "audio/webm"
+
+
 def test_post_transcribe_200_when_allowed_mime(fake_redis, monkeypatch):
     # Happy path: webm content-type + valid body still transcribes successfully.
     _mock_transcribe(monkeypatch)

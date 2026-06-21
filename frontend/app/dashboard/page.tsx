@@ -9,16 +9,12 @@ import { apiErrorToMessage, isAbortError } from "@/lib/api-error";
 import { getDueStatus } from "@/lib/format";
 import { groupByPR, groupByCommit } from "@/lib/group-concepts";
 import { getMockPRs } from "@/lib/mock";
+import { buildGraphFromConcepts } from "@/lib/build-graph";
 import type { Concept } from "@/lib/types";
 
 import { ConceptGraph } from "@/components/ConceptGraph";
 import { Mascot } from "@/components/Mascot";
-import {
-  CONCEPTS,
-  STATE_STYLE,
-  deriveState,
-  type GraphConcept,
-} from "@/lib/concepts";
+import { STATE_STYLE, deriveState } from "@/lib/concepts";
 
 import { CommitBlock, DueCard, PRBlock, SectionLabel } from "./components";
 
@@ -41,51 +37,21 @@ import { CommitBlock, DueCard, PRBlock, SectionLabel } from "./components";
 
 // ─── helpers ────────────────────────────────────────────────────────────
 
-/** Extract the concept slug (last `:` segment) from the canonical id. */
-function slugOf(conceptId: string): string {
-  const i = conceptId.lastIndexOf(":");
-  return i >= 0 ? conceptId.slice(i + 1) : conceptId;
+function truncate(text: string, max = 120): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
-/** Map live concepts → graph node states keyed by graph-node id. */
-function buildStatesByLiveData(live: Concept[]): Record<string, GraphConcept["state"]> {
-  const bySlug = new Map<string, Concept>();
-  for (const c of live) bySlug.set(slugOf(c.id), c);
-  const out: Record<string, GraphConcept["state"]> = {};
-  for (const node of CONCEPTS) {
-    const liveC = bySlug.get(node.id);
-    out[node.id] = liveC
-      ? deriveState({
-          nextReview: liveC.next_review,
-          interval: liveC.interval,
-          repetitions: liveC.repetitions,
-        })
-      : node.state;
-  }
-  return out;
+/** First due concept id, else first graph node id. */
+function defaultSelectionId(due: Concept[], graphNodeIds: string[]): string | null {
+  if (due[0]) return due[0].id;
+  return graphNodeIds[0] ?? null;
 }
 
 function friendlyFetchError(err: unknown): string {
   return apiErrorToMessage(err, "dashboard listDueConcepts");
 }
 
-/** First concept in the live list, used as the initial graph selection. */
-function defaultSelectionId(live: Concept[]): string {
-  const first = live[0];
-  if (first) return slugOf(first.id);
-  return CONCEPTS.find((c) => c.state !== "locked")?.id ?? CONCEPTS[0].id;
-}
-
 // ─── inline icon helpers (kept small, no new deps) ─────────────────────
-
-function FlameIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={Math.round(size * 1.15)} viewBox="0 0 18 18" aria-hidden>
-      <path d="M9 1.5 C12.6 6.5 13.5 9 13.5 12 A4.5 4.5 0 1 1 4.5 12 C4.5 9 5.4 6.5 9 1.5 Z" fill="#ff6f5e" />
-      <path d="M9 8 C10.8 10.4 11.2 11.6 11.2 12.8 A2.2 2.2 0 1 1 6.8 12.8 C6.8 11.6 7.2 10.4 9 8 Z" fill="#ffb627" />
-    </svg>
-  );
-}
 
 function LegendDot({ color, ring }: { color?: string; ring?: boolean }) {
   return (
@@ -294,28 +260,20 @@ export default function Dashboard() {
   const overdueCount = dueItems.filter((c) => getDueStatus(c.next_review) === "overdue").length;
   const totalConcepts = allConcepts.length;
 
-  const graphStates = useMemo(
-    () => buildStatesByLiveData(allConcepts),
-    [allConcepts],
-  );
+  const graphData = useMemo(() => buildGraphFromConcepts(allConcepts), [allConcepts]);
 
-  // Default the graph selection to a concept we actually have data for,
-  // or fall back to the first non-locked node in the canonical layout.
-  const effectiveSelectionId = selectedId ?? defaultSelectionId(allConcepts);
+  const effectiveSelectionId = selectedId ?? defaultSelectionId(dueItems, graphData.nodes.map((n) => n.id));
 
-  // Find the live concept matching the selected graph node (if any).
   const selectedLive = useMemo(() => {
-    const c = allConcepts.find((x) => slugOf(x.id) === effectiveSelectionId);
-    return c ?? null;
+    if (!effectiveSelectionId) return null;
+    return allConcepts.find((x) => x.id === effectiveSelectionId) ?? null;
   }, [allConcepts, effectiveSelectionId]);
 
-  const selectedNodeMeta = useMemo(
-    () => CONCEPTS.find((c) => c.id === effectiveSelectionId) ?? CONCEPTS[0],
-    [effectiveSelectionId],
+  const selectedNode = useMemo(
+    () => graphData.nodes.find((n) => n.id === effectiveSelectionId) ?? graphData.nodes[0] ?? null,
+    [graphData.nodes, effectiveSelectionId],
   );
 
-  // Mood comes from the live state if we have one, otherwise the
-  // canonical node's STATE_STYLE.
   const mascotMood = selectedLive
     ? STATE_STYLE[
         deriveState({
@@ -324,7 +282,17 @@ export default function Dashboard() {
           repetitions: selectedLive.repetitions,
         })
       ].mood
-    : STATE_STYLE[selectedNodeMeta.state].mood;
+    : selectedNode
+      ? STATE_STYLE[selectedNode.state].mood
+      : "thinking";
+
+  const handleGraphSelect = useCallback(
+    (nodeId: string) => {
+      setSelectedId(nodeId);
+      router.push(`/quiz/${encodeURIComponent(nodeId)}`);
+    },
+    [router],
+  );
 
   // ── render ────────────────────────────────────────────────────────────
 
@@ -401,11 +369,6 @@ export default function Dashboard() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-[7px] rounded-[11px] border border-line bg-surface-1 px-[13px] py-2">
-                <FlameIcon size={13} />
-                <span className="font-display text-[17px] font-extrabold text-ink">7</span>
-                <span className="font-mono text-[10px] text-ink-faint">day streak</span>
-              </div>
               {dueItems[0] && (
                 <a
                   href={`/quiz/${encodeURIComponent(dueItems[0].id)}`}
@@ -558,19 +521,28 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="flex min-h-[300px] flex-1 items-center justify-center">
-              <ConceptGraph
-                width={500}
-                states={graphStates}
-                selectedId={effectiveSelectionId}
-                onSelect={setSelectedId}
-              />
+              {graphData.nodes.length === 0 ? (
+                <p className="font-mono text-sm text-ink-faint text-center px-6">
+                  Sync your repos to see concepts
+                </p>
+              ) : (
+                <ConceptGraph
+                  width={500}
+                  nodes={graphData.nodes}
+                  edges={graphData.edges}
+                  selectedId={effectiveSelectionId}
+                  onSelect={handleGraphSelect}
+                />
+              )}
             </div>
             <div className="mt-1.5 flex items-center gap-2.5 border-t border-surface-2 pt-2.5">
               <Mascot mood={mascotMood} size={46} />
               <span className="font-mono text-[10.5px] leading-snug text-ink-faint">
-                {selectedLive
-                  ? `Tap a node — the examiner has opinions about ${selectedLive.concept}.`
-                  : `Tap a node — the examiner has opinions about ${selectedNodeMeta.label}.`}
+                {selectedLive?.roast_text
+                  ? truncate(selectedLive.roast_text)
+                  : selectedNode
+                    ? `Tap a node — the examiner has opinions about ${selectedNode.label}.`
+                    : "Sync your repos to populate the concept graph."}
               </span>
             </div>
           </div>

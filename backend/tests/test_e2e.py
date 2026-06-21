@@ -1,7 +1,7 @@
 """
 End-to-end pipeline test.
 
-The full ingestion path (Bear-2 → Claude → Redis) needs a real ANTHROPIC_API_KEY,
+The full ingestion path (Bear-2 → Claude → Redis) needs a real TOKENROUTER_API_KEY,
 so it runs only when one is configured. Without it, we still exercise the Redis-backed
 review loop end to end (cache → due → grade/SM-2 → TTL) using fakeredis, which is the
 part of A8 that can be verified hermetically.
@@ -22,7 +22,7 @@ SIX_DAYS = 6 * 24 * 60 * 60
 
 
 def _has_real_key() -> bool:
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    key = os.environ.get("TOKENROUTER_API_KEY", "")
     return bool(key) and not key.startswith("placeholder")
 
 
@@ -70,7 +70,7 @@ async def test_review_loop_hermetic():
 
 
 async def test_full_pipeline_with_claude():
-    """Full Bear-2 → Claude → Redis ingestion. Runs only with a real Anthropic key."""
+    """Full Bear-2 → Claude → Redis ingestion. Runs only with a real TokenRouter key."""
     if not _has_real_key():
         return  # skipped without credentials
 

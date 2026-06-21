@@ -32,6 +32,7 @@ import { RecorderOrb, SparkBurst, ThinkingDots, WaveBars } from "./recorder-ui";
 export type Phase =
   | "loading"
   | "notfound"
+  | "speaking"
   | "intro"
   | "recording"
   | "typing"
@@ -242,16 +243,40 @@ export function TypingPanel({
   );
 }
 
+/* ─── Speaking panel (TTS playback) ─────────────────────────────────────── */
+
+export function SpeakingPanel() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 animate-fade py-8">
+      <Duck className="w-14 h-14 animate-breathe" />
+      <p className="font-mono text-xs uppercase tracking-[0.16em] text-ink-faint flex items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-marigold animate-pulse" />
+        listening…
+      </p>
+    </div>
+  );
+}
+
 /* ─── Thinking panel ────────────────────────────────────────────────────── */
 
-export function ThinkingPanel({ stage, transcript }: { stage: Stage; transcript: string }) {
+export function ThinkingPanel({
+  stage,
+  transcript,
+  seconds,
+}: {
+  stage: Stage;
+  transcript: string;
+  seconds?: number;
+}) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-6 animate-fade">
       <Duck className="w-12 h-12" />
       <div className="flex items-center gap-3 text-ink-dim">
         <ThinkingDots />
         <span className="font-mono text-sm">
-          {stage === "transcribing" ? "transcribing your answer…" : "the examiner is grading…"}
+          {stage === "transcribing"
+            ? `transcribing your answer…${seconds != null && seconds > 0 ? ` (${formatTime(seconds)})` : ""}`
+            : "the examiner is grading…"}
         </span>
       </div>
       {transcript && (
@@ -393,6 +418,7 @@ export function ActionBar({
   if (
     phase === "loading" ||
     phase === "notfound" ||
+    phase === "speaking" ||
     phase === "failed" ||
     phase === "thinking" ||
     phase === "typing"

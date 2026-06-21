@@ -1,6 +1,7 @@
 "use client";
 
-import { CONCEPTS, EDGES, STATE_STYLE, type GraphConcept } from "@/lib/concepts";
+import { STATE_STYLE } from "@/lib/concepts";
+import type { GraphNode } from "@/lib/build-graph";
 import styles from "./ConceptGraph.module.css";
 
 const VIEW_W = 820;
@@ -14,22 +15,20 @@ function widthOf(label: string) {
 export interface ConceptGraphProps {
   /** Render width in px; height scales with the 820×520 viewBox. */
   width?: number;
-  /** Override node states from live data, keyed by concept id. */
-  states?: Partial<Record<string, GraphConcept["state"]>>;
+  nodes: GraphNode[];
+  edges: [string, string][];
   selectedId: string | null;
   onSelect: (id: string) => void;
 }
 
-export function ConceptGraph({ width = 800, states, selectedId, onSelect }: ConceptGraphProps) {
-  const nodes = CONCEPTS.map((c) => {
-    const state = states?.[c.id] ?? c.state;
-    const s = STATE_STYLE[state];
+export function ConceptGraph({ width = 800, nodes: inputNodes, edges: inputEdges, selectedId, onSelect }: ConceptGraphProps) {
+  const nodes = inputNodes.map((c) => {
+    const s = STATE_STYLE[c.state];
     const w = widthOf(c.label);
     const rx0 = c.x - w / 2;
     const dotX = rx0 + 19;
     return {
       ...c,
-      state,
       style: s,
       w,
       rx0,
@@ -37,17 +36,18 @@ export function ConceptGraph({ width = 800, states, selectedId, onSelect }: Conc
       dotX,
       textX: dotX + 13,
       selected: c.id === selectedId,
-      isMastered: state === "mastered",
-      isDue: state === "due",
-      isProgress: state === "progress",
+      isMastered: c.state === "mastered",
+      isDue: c.state === "due",
+      isProgress: c.state === "progress",
       checkPts: `${dotX - 5},${c.y + 0.5} ${dotX - 1},${c.y + 4.7} ${dotX + 6},${c.y - 4.5}`,
     };
   });
   const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
 
-  const edges = EDGES.map(([a, b]) => {
+  const edges = inputEdges.map(([a, b]) => {
     const na = byId[a];
     const nb = byId[b];
+    if (!na || !nb) return null;
     const sxR = na.x + na.w / 2;
     const txL = nb.x - nb.w / 2;
     const connected = a === selectedId || b === selectedId;
@@ -58,7 +58,13 @@ export function ConceptGraph({ width = 800, states, selectedId, onSelect }: Conc
       width: connected ? 2.5 : 1.5,
       opacity: connected ? 0.95 : 0.45,
     };
-  });
+  }).filter(Boolean) as Array<{
+    key: string;
+    d: string;
+    stroke: string;
+    width: number;
+    opacity: number;
+  }>;
 
   return (
     <svg

@@ -1,8 +1,8 @@
 import json
 import re
 
-import anthropic
 import sentry_sdk
+from openai import AsyncOpenAI
 
 import backend.config as config
 from backend.models import QuizConcept
@@ -11,18 +11,11 @@ from backend.services.concept_ids import build_concept_id_seed
 from backend.services.redis_client import cache_quiz_content
 from backend.services import vector_store
 
-# Client construction is conditional on USE_TOKENROUTER (see backend/config.py):
-#   • USE_TOKENROUTER unset/false → direct Anthropic (api.anthropic.com)
-#   • USE_TOKENROUTER=true        → tokenrouter.com (Anthropic-compatible proxy)
-# The SDK auto-appends /v1/messages to base_url, so we pass the bare origin.
-client = anthropic.AsyncAnthropic(
-    api_key=config.TOKENROUTER_API_KEY if config.USE_TOKENROUTER else config.ANTHROPIC_API_KEY,
-    base_url=config.TOKENROUTER_BASE_URL if config.USE_TOKENROUTER else None,
+client = AsyncOpenAI(
+    api_key=config.TOKENROUTER_API_KEY,
+    base_url=config.TOKENROUTER_BASE_URL,
 )
-
-# Model name is env-overridable so tokenrouter-prefixed names (e.g.
-# "anthropic/claude-sonnet-4-6") can be set without touching code.
-MODEL = config.ANTHROPIC_MODEL
+MODEL = config.TOKENROUTER_MODEL
 
 SYSTEM_PROMPT = """You are VibeSchool, a savage but educational code reviewer.
 Given a GitHub diff (either a PR or a single commit), you:
@@ -90,6 +83,16 @@ def _format_prior_examples(examples) -> str:
     return "\n".join(lines)
 
 
+def _strip_redacted_thinking(text: str) -> str:
+    """Remove MiniMax-M3 inline reasoning blocks before JSON parsing."""
+    return re.sub(
+        r"<think>.*?</think>\s*",
+        "",
+        text,
+        flags=re.DOTALL,
+    )
+
+
 def _strip_fences(text: str) -> str:
     text = re.sub(r"^```json\s*", "", text)
     text = re.sub(r"^```\s*", "", text)
@@ -98,7 +101,7 @@ def _strip_fences(text: str) -> str:
 
 
 def _parse_json_envelope(raw_text: str, *, breadcrumb_label: str) -> object | None:
-    """Strip Claude's occasional markdown fences and JSON-decode the result.
+    """Strip reasoning blocks and markdown fences, then JSON-decode the result.
 
     On parse failure: capture the exception to Sentry, emit a breadcrumb
     tagged with `breadcrumb_label` so the team can tell which call site
@@ -108,7 +111,7 @@ def _parse_json_envelope(raw_text: str, *, breadcrumb_label: str) -> object | No
 
     Pure function (no I/O beyond Sentry SDK calls) — testable in isolation.
     """
-    raw_response = _strip_fences(raw_text.strip())
+    raw_response = _strip_fences(_strip_redacted_thinking(raw_text.strip()))
     try:
         return json.loads(raw_response)
     except json.JSONDecodeError as e:
@@ -153,22 +156,23 @@ async def extract_concepts_and_cache(
         compressed_diff = await compress_diff(raw_diff)
 
         try:
-            message = await client.messages.create(
+            response = await client.chat.completions.create(
                 model=MODEL,
                 max_tokens=2048,
-                system=system_prompt,
                 messages=[
+                    {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": f"Extract concepts from this diff:\n\n{compressed_diff}",
-                    }
+                    },
                 ],
             )
         except Exception as e:
             sentry_sdk.capture_exception(e)
             raise
 
-        parsed = _parse_json_envelope(message.content[0].text, breadcrumb_label="extract")
+        content = response.choices[0].message.content or ""
+        parsed = _parse_json_envelope(content, breadcrumb_label="extract")
         if not isinstance(parsed, list):
             # Empty list (trivially parseable but no concepts) is also fine;
             # this branch only catches JSON failures (parsed is None) and
@@ -267,13 +271,14 @@ Grade on a 0-5 scale (SM-2 quality score):
 Respond ONLY with valid JSON, no markdown fences:
 {{"quality": <int 0-5>, "passed": <bool>, "explanation": "<one sentence feedback>"}}"""
 
-    message = await client.messages.create(
+    response = await client.chat.completions.create(
         model=MODEL,
         max_tokens=256,
         messages=[{"role": "user", "content": grading_prompt}],
     )
 
-    parsed = _parse_json_envelope(message.content[0].text, breadcrumb_label="grade")
+    content = response.choices[0].message.content or ""
+    parsed = _parse_json_envelope(content, breadcrumb_label="grade")
     if not isinstance(parsed, dict):
         return {"passed": False, "quality": 0, "explanation": "Grading failed — please try again."}
 

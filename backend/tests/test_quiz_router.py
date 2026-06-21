@@ -151,6 +151,35 @@ def test_post_transcribe_deepgram_malformed_json_returns_error_envelope(fake_red
     assert body["error"]  # non-empty error
 
 
+# --- /api/tts -------------------------------------------------------------
+
+
+def test_post_tts_requires_auth():
+    client = TestClient(app)
+    r = client.post("/api/tts", json={"text": "Hello from the examiner."})
+    assert r.status_code == 401
+
+
+def test_post_tts_with_auth_returns_audio(fake_redis, monkeypatch):
+    async def fake_synthesize(text: str):
+        assert text == "Hello from the examiner."
+        return b"\xff\xfb\x90" + b"\x00" * 32
+
+    from backend.routers import quiz as quiz_router
+    monkeypatch.setattr(quiz_router, "synthesize_speech", fake_synthesize)
+
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
+    client = TestClient(app)
+    r = client.post(
+        "/api/tts",
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
+        json={"text": "Hello from the examiner."},
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("audio/mpeg")
+    assert len(r.content) > 0
+
+
 # --- /api/grade -------------------------------------------------------------
 
 

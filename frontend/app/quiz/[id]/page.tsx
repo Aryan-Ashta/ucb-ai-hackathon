@@ -1,13 +1,19 @@
 "use client";
 
-import { gradeAnswer, getConcept, transcribeAudio, USING_MOCK } from "@/lib/api";
+import {
+  gradeAnswer,
+  getConcept,
+  listDueConcepts,
+  transcribeAudio,
+  USING_MOCK,
+} from "@/lib/api";
 import type { Concept, GradeResult } from "@/lib/types";
 import { isAbortError } from "@/lib/api-error";
 import { useRecorder } from "@/lib/useRecorder";
+import { useTts } from "@/lib/useTts";
 import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MOCK_CONCEPTS } from "@/lib/mock";
 import {
   ActionBar,
   CodeExcerptPanel,
@@ -19,6 +25,7 @@ import {
   ResultPanel,
   RoastBubble,
   Shell,
+  SpeakingPanel,
   ThinkingPanel,
   TypingPanel,
   type Stage,
@@ -26,14 +33,18 @@ import {
   NotFoundPanel,
 } from "./panels";
 
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+
 export default function QuizPage() {
   const params = useParams<{ id: string }>();
   const id = decodeURIComponent(params.id);
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
   const rec = useRecorder();
+  const tts = useTts();
 
   const [concept, setConcept] = useState<Concept | null>(null);
+  const [dueList, setDueList] = useState<Concept[]>([]);
   const [phase, setPhase] = useState<Phase>("loading");
   const [stage, setStage] = useState<Stage>("transcribing");
   const [transcript, setTranscript] = useState("");
@@ -41,18 +52,10 @@ export default function QuizPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
 
-  // H2 (Trace 2): one AbortController shared by the concept fetch AND the
-  // grading pipeline. The mount-effect cleanup aborts it so navigating away
-  // mid-grade cancels the in-flight Deepgram + Claude requests instead of
-  // burning API quota and setState'ing on an unmounted component.
   const ctrlRef = useRef<AbortController | null>(null);
-
-  // Progress is monotonically non-decreasing within a quiz session so the
-  // rail can't visibly shrink when navigating to the next concept (1→0 during
-  // load) or when retrying a failed answer (1→0.33 on reset).
+  const fetchGenRef = useRef(0);
   const lastProgressRef = useRef(0);
 
-  // Load (or reload, on "Next concept") the concept for this id.
   useEffect(() => {
     // Don't fire the authenticated fetch until NextAuth has resolved the
     // session. Quiz links are plain <a href> elements (full-page nav), so
@@ -62,41 +65,72 @@ export default function QuizPage() {
     // Mock mode doesn't use the token, so we skip the guard there.
     if (!USING_MOCK && sessionStatus === "loading") return;
 
-    // Abort any in-flight grading from the previous concept before starting
-    // a fresh fetch — keeps the controller lifecycle tied to the id.
     ctrlRef.current?.abort();
+    tts.abort();
     const ctrl = new AbortController();
     ctrlRef.current = ctrl;
+    const gen = ++fetchGenRef.current;
+
     setPhase("loading");
     setGrade(null);
     setTranscript("");
     setErrorMsg(null);
     setTyped("");
     rec.reset();
-    getConcept(id, session?.accessToken ?? undefined, ctrl.signal)
-      .then((c) => {
+
+    const token = session?.accessToken ?? undefined;
+    Promise.all([
+      getConcept(id, token, ctrl.signal),
+      token ? listDueConcepts(token, ctrl.signal) : Promise.resolve([]),
+    ])
+      .then(([c, due]) => {
+        if (gen !== fetchGenRef.current) return;
         setConcept(c);
-        setPhase(c ? "intro" : "notfound");
+        setDueList(due);
+        if (!c) {
+          setPhase("notfound");
+          return;
+        }
+        setPhase("speaking");
       })
       .catch((err: unknown) => {
-        if (isAbortError(err)) return;
+        if (isAbortError(err)) {
+          if (gen !== fetchGenRef.current) return;
+          return;
+        }
+        if (gen !== fetchGenRef.current) return;
         setConcept(null);
         setPhase("notfound");
       });
     return () => ctrl.abort();
-    // rec.reset is stable; keyed on id + sessionStatus so the fetch
-    // re-fires once the session settles from "loading" → "authenticated".
+    // rec.reset and tts.abort are stable; re-fire when session settles or token changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, sessionStatus]);
+  }, [id, sessionStatus, session?.accessToken]);
+
+  useEffect(() => {
+    if (phase !== "speaking" || !concept || !session?.accessToken) return;
+    let cancelled = false;
+
+    void tts
+      .speakSequence([concept.roast_text, concept.question_text], session.accessToken)
+      .then(() => {
+        if (!cancelled) setPhase("intro");
+      })
+      .catch((err: unknown) => {
+        if (isAbortError(err) || cancelled) return;
+        setPhase("intro");
+      });
+
+    return () => {
+      cancelled = true;
+      tts.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, concept?.id, session?.accessToken]);
 
   const runGrading = useCallback(
-    // `directText` is a typed answer — it skips transcription and goes straight
-    // to grading. Audio answers are transcribed first.
     async (audio: Blob | null, directText?: string) => {
       if (!concept) return;
-      // H2: reuse the page-level controller so unmount can abort us mid-grade.
-      // If the prior controller was already aborted (e.g. navigated during a
-      // previous grade), swap in a fresh one.
       let ctrl = ctrlRef.current;
       if (!ctrl || ctrl.signal.aborted) {
         ctrl = new AbortController();
@@ -108,8 +142,18 @@ export default function QuizPage() {
       try {
         let text = directText?.trim() ?? "";
         if (!directText) {
+          if (!audio) {
+            setErrorMsg("Couldn't hear that one. Give it another go.");
+            setPhase("failed");
+            return;
+          }
+          if (audio.size > MAX_AUDIO_BYTES) {
+            setErrorMsg("Recording is too large (max 10 MB). Try a shorter answer.");
+            setPhase("failed");
+            return;
+          }
           setStage("transcribing");
-          const r = await transcribeAudio(audio!, session?.accessToken ?? undefined, signal);
+          const r = await transcribeAudio(audio, session?.accessToken ?? undefined, signal);
           if (r.error || !r.transcript.trim()) {
             setErrorMsg(r.error ?? "Couldn't hear that one. Give it another go.");
             setPhase("failed");
@@ -145,14 +189,18 @@ export default function QuizPage() {
     if (typed.trim()) runGrading(null, typed);
   }, [typed, runGrading]);
 
-  // Next concept in the bank (demo navigation); falls back to dashboard.
   const nextId = useMemo(() => {
-    const i = MOCK_CONCEPTS.findIndex((c) => c.id === id);
-    return i >= 0 && i < MOCK_CONCEPTS.length - 1 ? MOCK_CONCEPTS[i + 1].id : null;
-  }, [id]);
+    const sorted = [...dueList].sort(
+      (a, b) => new Date(a.next_review).getTime() - new Date(b.next_review).getTime(),
+    );
+    const i = sorted.findIndex((c) => c.id === id);
+    if (i < 0) return null;
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (sorted[j]!.id !== id) return sorted[j]!.id;
+    }
+    return null;
+  }, [dueList, id]);
 
-  // Single canonical "go back to intro" handler for the failed panel + retry
-  // button. Inline in two places previously; lifted to keep the page file small.
   const resetToIntro = useCallback(() => {
     rec.reset();
     setTranscript("");
@@ -162,16 +210,9 @@ export default function QuizPage() {
     setPhase("intro");
   }, [rec]);
 
-  /* ─── Render ─────────────────────────────────────────────────────────── */
+  const targetProgress =
+    phase === "intro" || phase === "speaking" ? 0.33 : phase === "result" ? 1 : 0.66;
 
-  // Target progress for the current phase. `loading` collapses to 0.66 so
-  // the early-return branches below can use the same monotonic value.
-  const targetProgress = phase === "intro" ? 0.33 : phase === "result" ? 1 : 0.66;
-
-  // The bar is monotonically non-decreasing within a session: it never
-  // shrinks when navigating to the next concept (1 → 0 during load) or
-  // when retrying a failed answer (1 → 0.33 on reset). The first render
-  // uses the ref's current value; subsequent renders advance only.
   const displayedProgress = Math.max(targetProgress, lastProgressRef.current);
   useEffect(() => {
     if (targetProgress > lastProgressRef.current) lastProgressRef.current = targetProgress;
@@ -189,42 +230,38 @@ export default function QuizPage() {
   return (
     <Shell progress={displayedProgress} wide={showSplit}>
       <div className="flex-1 flex flex-col gap-7 pt-7 pb-4">
-        {/* Concept + provenance, persistent across phases */}
         <ConceptEyebrow concept={concept} />
+
+        {phase === "speaking" && <SpeakingPanel />}
 
         {/* Side-by-side layout: question left, code excerpt right */}
         {showSplit ? (
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,420px)] gap-6 items-start">
-            {/* Left column: roast + question */}
             <div className="flex flex-col gap-6">
               {(phase === "intro" || phase === "recording") && (
                 <RoastBubble roast={concept.roast_text} />
               )}
-              <QuestionHero concept={concept} />
+              {phase !== "result" && phase !== "failed" && phase !== "speaking" && (
+                <QuestionHero concept={concept} />
+              )}
             </div>
-            {/* Right column: code excerpt */}
             <CodeExcerptPanel concept={concept} />
           </div>
         ) : (
           <>
-            {/* Roast — shown before answering and while recording */}
             {(phase === "intro" || phase === "recording") && (
               <RoastBubble roast={concept.roast_text} />
             )}
-
-            {/* Question hero — present until the result reveal */}
-            {phase !== "result" && phase !== "failed" && (
+            {phase !== "result" && phase !== "failed" && phase !== "speaking" && (
               <QuestionHero concept={concept} />
             )}
           </>
         )}
 
-        {/* Recording instrument */}
         {phase === "recording" && (
           <RecordingPanel rec={rec} onType={() => setPhase("typing")} />
         )}
 
-        {/* Typed answer */}
         {phase === "typing" && (
           <TypingPanel
             value={typed}
@@ -237,19 +274,17 @@ export default function QuizPage() {
           />
         )}
 
-        {/* Thinking */}
-        {phase === "thinking" && <ThinkingPanel stage={stage} transcript={transcript} />}
+        {phase === "thinking" && (
+          <ThinkingPanel stage={stage} transcript={transcript} seconds={rec.seconds} />
+        )}
 
-        {/* Result */}
         {phase === "result" && grade && (
           <ResultPanel concept={concept} grade={grade} transcript={transcript} />
         )}
 
-        {/* Recoverable failure */}
         {phase === "failed" && <FailedPanel errorMsg={errorMsg} onRetry={resetToIntro} />}
       </div>
 
-      {/* Bottom action bar — phase-specific */}
       <ActionBar
         phase={phase}
         recState={rec.state}

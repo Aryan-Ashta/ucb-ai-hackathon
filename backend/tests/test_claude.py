@@ -2,10 +2,10 @@
 Claude tests.
 
 Pure helper tests (fence stripping) run anywhere. The live extraction test runs only
-when a real ANTHROPIC_API_KEY and a reachable Redis are present.
+when a real TOKENROUTER_API_KEY and a reachable Redis are present.
 
 The `grade_answer` tests mock `backend.services.claude.client` with unittest.mock
-(AsyncMock + MagicMock) so they run without a real ANTHROPIC_API_KEY. They cover the
+(AsyncMock + MagicMock) so they run without a real TOKENROUTER_API_KEY. They cover the
 happy path, graceful handling of malformed JSON, and clamping of out-of-range quality
 scores.
 """
@@ -17,7 +17,7 @@ from backend.services.claude import _strip_fences, grade_answer
 
 
 def _has_real_key() -> bool:
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    key = os.environ.get("TOKENROUTER_API_KEY", "")
     return bool(key) and not key.startswith("placeholder")
 
 
@@ -34,7 +34,7 @@ def test_strip_bare_fence():
 
 
 async def test_live_extraction():
-    """Only runs with a real Anthropic key + Redis — asserts a concept is produced."""
+    """Only runs with a real TokenRouter key + Redis — asserts a concept is produced."""
     if not _has_real_key():
         return  # skipped without credentials
 
@@ -59,35 +59,35 @@ async def test_live_extraction():
 
 
 # ---------------------------------------------------------------------------
-# grade_answer tests — all run without a real ANTHROPIC_API_KEY by patching
+# grade_answer tests — all run without a real TOKENROUTER_API_KEY by patching
 # `backend.services.claude.client` with an AsyncMock. These tests cover the
-# post-fix contract: AsyncAnthropic client (await), try/except around json.loads
+# post-fix contract: AsyncOpenAI client (await), try/except around json.loads
 # (graceful default on malformed JSON), quality clamping to [0, 5], and bool
 # coercion of `passed`.
 # ---------------------------------------------------------------------------
 
 
 def _make_fake_message(text: str) -> MagicMock:
-    """Build a fake anthropic Message: `.content[0].text == text`."""
+    """Build a fake OpenAI ChatCompletion: `.choices[0].message.content == text`."""
     msg = MagicMock()
-    msg.content = [MagicMock(text=text)]
+    msg.choices = [MagicMock(message=MagicMock(content=text))]
     return msg
 
 
 def _patch_client(monkeypatch, fake_message: MagicMock) -> AsyncMock:
     """Replace `backend.services.claude.client` with a mock whose async
-    `messages.create` returns `fake_message`. Returns the AsyncMock so callers
+    `chat.completions.create` returns `fake_message`. Returns the AsyncMock so callers
     can assert on call args if desired.
     """
     fake_client = MagicMock()
     create_mock = AsyncMock(return_value=fake_message)
-    fake_client.messages.create = create_mock
+    fake_client.chat.completions.create = create_mock
     monkeypatch.setattr("backend.services.claude.client", fake_client)
     return create_mock
 
 
 async def test_grade_answer_happy_path(monkeypatch):
-    """Happy path: Claude returns well-formed JSON; grade_answer returns it parsed."""
+    """Happy path: model returns well-formed JSON; grade_answer returns it parsed."""
     payload = {"quality": 3, "passed": True, "explanation": "good answer"}
     _patch_client(monkeypatch, _make_fake_message(json.dumps(payload)))
 
@@ -104,7 +104,7 @@ async def test_grade_answer_happy_path(monkeypatch):
 
 
 async def test_grade_answer_malformed_json_graceful_default(monkeypatch):
-    """Malformed JSON from Claude must not raise — grade_answer returns a
+    """Malformed JSON from the model must not raise — grade_answer returns a
     graceful default with passed=False, quality=0, and a non-empty explanation.
     """
     _patch_client(monkeypatch, _make_fake_message("not valid json {{{"))

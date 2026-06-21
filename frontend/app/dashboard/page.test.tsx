@@ -13,13 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ─── Module mocks (must come before any component import) ──────────────
 
 const mockReplace = vi.fn();
+const mockPush = vi.fn();
 const mockSignOut = vi.fn();
 const mockListDueConcepts = vi.fn();
 const mockListAllConcepts = vi.fn();
 const mockTriggerSync = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
 }));
 
 vi.mock("next-auth/react", () => ({
@@ -147,10 +148,10 @@ describe("Dashboard / authenticated, fetch results", () => {
     render(<Dashboard />);
 
     await waitFor(() => {
-      // "Memoization" appears in both the due-now queue AND the
-      // concept bank; assert at least one is rendered.
       expect(screen.getAllByText("Memoization").length).toBeGreaterThanOrEqual(1);
     });
+    expect(screen.queryByText(/day streak/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Concept graph/i)).toBeInTheDocument();
     expect(screen.getByText(/1 overdue/i)).toBeInTheDocument();
     expect(screen.getByText(/2 concepts tracked/i)).toBeInTheDocument();
   });

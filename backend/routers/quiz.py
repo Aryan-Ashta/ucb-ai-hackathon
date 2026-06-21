@@ -2,11 +2,13 @@ import httpx
 import sentry_sdk
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from backend.dependencies.auth import get_current_user
 from backend.services.claude import grade_answer
 from backend.services.deepgram_stt import transcribe_audio
+from backend.services.deepgram_tts import synthesize_speech
 from backend.services.redis_client import get_quiz_content, update_sm2_state
 
 router = APIRouter()
@@ -18,6 +20,21 @@ router = APIRouter()
 # rejected upstream — fail fast with a clear error instead.
 MAX_AUDIO_BYTES: int = 10 * 1024 * 1024  # 10 MB
 ALLOWED_MIME_TYPES: set[str] = {"audio/webm", "audio/wav", "audio/mpeg", "audio/ogg", "audio/mp4"}
+MAX_TTS_CHARS: int = 2000
+
+
+def _normalize_audio_mime(raw: str | None) -> str:
+    """Strip codec params (e.g. audio/webm;codecs=opus) before allowlist check."""
+    base = (raw or "audio/webm").split(";", 1)[0].strip().lower()
+    if base not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                f"Unsupported audio format: {raw or 'unknown'}. "
+                "Use webm, wav, mp3, or ogg."
+            ),
+        )
+    return base
 
 
 @router.post("/transcribe")
@@ -34,19 +51,7 @@ async def transcribe(
     per-user); the dependency exists so unauthenticated callers cannot
     burn the Deepgram API key.
     """
-    # Strip codec parameters (e.g. "audio/webm;codecs=opus" → "audio/webm")
-    # before checking the allow-list. Browsers append codec info to the
-    # MIME type reported by MediaRecorder but Deepgram cares only about
-    # the base container format.
-    base_type = (audio.content_type or "").split(";")[0].strip().lower()
-    if base_type and base_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=415,
-            detail=(
-                f"Unsupported audio format: {audio.content_type}. "
-                "Use webm, wav, mp3, or ogg."
-            ),
-        )
+    mime = _normalize_audio_mime(audio.content_type)
 
     audio_bytes = await audio.read()
 
@@ -65,9 +70,7 @@ async def transcribe(
     # handles {transcript: "", error: "..."} (matches the no-speech shape).
     with sentry_sdk.start_span(op="deepgram.stt", name="Transcribe audio"):
         try:
-            transcript = await transcribe_audio(
-                audio_bytes, mimetype=audio.content_type or "audio/webm"
-            )
+            transcript = await transcribe_audio(audio_bytes, mimetype=mime)
         except (httpx.HTTPError, httpx.RequestError, ValueError, KeyError) as e:
             sentry_sdk.capture_exception(e)
             return {
@@ -79,6 +82,33 @@ async def transcribe(
         return {"transcript": "", "error": "No speech detected -- please try again"}
 
     return {"transcript": transcript}
+
+
+class TtsRequest(BaseModel):
+    text: str = Field(..., max_length=MAX_TTS_CHARS)
+
+
+@router.post("/tts")
+async def tts(req: TtsRequest, user=Depends(get_current_user)):
+    """Synthesize speech for roast/question playback. Auth-gated."""
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    with sentry_sdk.start_span(op="deepgram.tts", name="Synthesize speech"):
+        try:
+            audio_bytes = await synthesize_speech(text)
+        except (httpx.HTTPError, httpx.RequestError, ValueError) as e:
+            sentry_sdk.capture_exception(e)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Speech synthesis unavailable: {type(e).__name__}",
+            ) from e
+
+    return StreamingResponse(
+        iter([audio_bytes]),
+        media_type="audio/mpeg",
+    )
 
 
 class GradeRequest(BaseModel):
