@@ -98,3 +98,53 @@ def test_post_transcribe_no_speech_returns_error_payload(fake_redis, monkeypatch
     body = r.json()
     assert body["transcript"] == ""
     assert "try again" in body["error"].lower()
+
+
+def test_post_transcribe_deepgram_failure_returns_error_envelope(fake_redis, monkeypatch):
+    """P1-DG: a Deepgram-side failure must surface as a clean error envelope
+    with status 200, NOT a 500. The UI's existing {transcript:"", error:"..."}
+    shape handles this transparently.
+    """
+    import httpx as _httpx
+
+    async def fake_transcribe_raises(audio_bytes, mimetype="audio/webm"):
+        # Simulate the most common Deepgram failure modes: HTTPError on 5xx,
+        # RequestError on network/timeout. Both must be caught.
+        raise _httpx.HTTPError("502 Bad Gateway from Deepgram")
+
+    from backend.routers import quiz as quiz_router
+    monkeypatch.setattr(quiz_router, "transcribe_audio", fake_transcribe_raises)
+
+    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    client = TestClient(app)
+    r = client.post(
+        "/api/transcribe",
+        headers={"Authorization": "Bearer ghp_test"},
+        files={"audio": ("answer.webm", _audio_bytes(), "audio/webm")},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["transcript"] == ""
+    assert "unavailable" in body["error"].lower() or "service" in body["error"].lower()
+
+
+def test_post_transcribe_deepgram_malformed_json_returns_error_envelope(fake_redis, monkeypatch):
+    """P1-DG: a malformed response (KeyError on parsing the transcript path)
+    must also be caught — same envelope as a transport-level failure."""
+    async def fake_transcribe_raises(audio_bytes, mimetype="audio/webm"):
+        raise KeyError("results")
+
+    from backend.routers import quiz as quiz_router
+    monkeypatch.setattr(quiz_router, "transcribe_audio", fake_transcribe_raises)
+
+    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    client = TestClient(app)
+    r = client.post(
+        "/api/transcribe",
+        headers={"Authorization": "Bearer ghp_test"},
+        files={"audio": ("answer.webm", _audio_bytes(), "audio/webm")},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["transcript"] == ""
+    assert body["error"]  # non-empty error

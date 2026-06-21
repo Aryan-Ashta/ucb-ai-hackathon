@@ -1,3 +1,4 @@
+import httpx
 import sentry_sdk
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -52,10 +53,21 @@ async def transcribe(
     if len(audio_bytes) == 0:
         raise HTTPException(status_code=400, detail="Empty audio file")
 
+    # P1-DG: transcribe_audio raises on any Deepgram failure (auth, network, 5xx,
+    # timeout, malformed JSON). We surface those as a clean error envelope
+    # instead of letting httpx.HTTPError propagate to a 500 — the UI already
+    # handles {transcript: "", error: "..."} (matches the no-speech shape).
     with sentry_sdk.start_span(op="deepgram.stt", name="Transcribe audio"):
-        transcript = await transcribe_audio(
-            audio_bytes, mimetype=audio.content_type or "audio/webm"
-        )
+        try:
+            transcript = await transcribe_audio(
+                audio_bytes, mimetype=audio.content_type or "audio/webm"
+            )
+        except (httpx.HTTPError, httpx.RequestError, ValueError, KeyError) as e:
+            sentry_sdk.capture_exception(e)
+            return {
+                "transcript": "",
+                "error": f"Transcription service unavailable: {type(e).__name__}",
+            }
 
     if not transcript:
         return {"transcript": "", "error": "No speech detected -- please try again"}

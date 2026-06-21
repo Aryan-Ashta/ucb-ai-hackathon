@@ -130,3 +130,46 @@ def test_post_schedule_review_validation_error_on_missing_field():
     assert "concept_id" in missing
     assert "next_review_timestamp" in missing
     assert "user_calendar_id" in missing
+
+
+def test_post_schedule_review_poke_failure_returns_error_envelope(monkeypatch):
+    """P1-PK: a Poke-side failure (HTTPError, RequestError, malformed
+    response) must surface as {status: "failed", error: "..."} with status 200,
+    NOT propagate to a 500. The grade + SM-2 update already happened upstream
+    — this endpoint is a calendar side-effect, so failing soft is correct.
+    """
+    import httpx as _httpx
+
+    from backend.routers import schedule as schedule_router
+
+    async def fake_get_quiz_content(user_id, concept_id):
+        return {
+            "concept": "memoization",
+            "roast_text": "cached",
+            "question_text": "Q?",
+            "answer_hint": "memory for speed",
+        }
+
+    async def fake_schedule_review_raises(
+        concept_name, concept_id, next_review_timestamp, user_calendar_id
+    ):
+        raise _httpx.ConnectError("dns lookup failed for api.interaction.co")
+
+    monkeypatch.setattr(schedule_router, "get_quiz_content", fake_get_quiz_content)
+    monkeypatch.setattr(schedule_router, "schedule_review_block", fake_schedule_review_raises)
+
+    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    client = TestClient(app)
+    r = client.post(
+        "/api/schedule-review",
+        json={
+            "concept_id": "abc:1:memoization",
+            "next_review_timestamp": 1_719_000_000,
+            "user_calendar_id": "cal-xyz",
+        },
+        headers={"Authorization": "Bearer ghp_test"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "failed"
+    assert "unavailable" in body["error"].lower() or "service" in body["error"].lower()

@@ -1,3 +1,4 @@
+import httpx
 import sentry_sdk
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -21,12 +22,23 @@ async def schedule_review(req: ScheduleRequest, user=Depends(get_current_user)):
     if not quiz:
         raise HTTPException(status_code=404, detail="Concept not found")
 
+    # P1-PK: schedule_review_block raises on any Poke failure (auth, network, 5xx,
+    # timeout, missing field). Return a clean error envelope with status 200 so
+    # the grade + SM-2 update that already happened isn't lost. The UI can still
+    # show "scheduling failed, but the concept is updated".
     with sentry_sdk.start_span(op="poke.schedule", name="Schedule calendar block"):
-        event = await schedule_review_block(
-            concept_name=quiz["concept"],
-            concept_id=req.concept_id,
-            next_review_timestamp=req.next_review_timestamp,
-            user_calendar_id=req.user_calendar_id,
-        )
+        try:
+            event = await schedule_review_block(
+                concept_name=quiz["concept"],
+                concept_id=req.concept_id,
+                next_review_timestamp=req.next_review_timestamp,
+                user_calendar_id=req.user_calendar_id,
+            )
+        except (httpx.HTTPError, httpx.RequestError, ValueError, KeyError) as e:
+            sentry_sdk.capture_exception(e)
+            return {
+                "status": "failed",
+                "error": f"Calendar service unavailable: {type(e).__name__}",
+            }
 
     return {"status": "scheduled", "event": event}
