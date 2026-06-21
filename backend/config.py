@@ -26,6 +26,7 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")  # optional; unauth is rate-li
 TOKENROUTER_API_KEY = _require("TOKENROUTER_API_KEY")
 TOKEN_COMPANY_API_KEY = _require("TOKEN_COMPANY_API_KEY")
 DEEPGRAM_API_KEY = _require("DEEPGRAM_API_KEY")
+DEEPGRAM_TTS_VOICE = os.environ.get("DEEPGRAM_TTS_VOICE", "aura-asteria-en")
 
 # ── AI gateway (TokenRouter / OpenAI-compatible) ──────────────────────────
 # TokenRouter serves /v1/chat/completions; the OpenAI SDK appends that path to
@@ -51,11 +52,6 @@ REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
 REDIS_TLS = os.environ.get("REDIS_TLS", "").lower() in ("1", "true", "yes")
 
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")  # empty disables Sentry transport
-POKE_API_KEY = _require("POKE_API_KEY")
-# P1-B7: calendar ID is server-side now (was a horizontal-privilege primitive
-# when read from the request body). For the demo this is a single env-supplied
-# default; production would resolve per-user from a Poke OAuth flow + Redis.
-POKE_USER_CALENDAR_ID = os.environ.get("POKE_USER_CALENDAR_ID", "")
 
 # Fernet key for at-rest encryption of user OAuth tokens in Redis.
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

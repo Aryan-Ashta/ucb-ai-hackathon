@@ -23,12 +23,15 @@ Given a GitHub diff (either a PR or a single commit), you:
 2. Write a roast of the code for each concept — be specific, reference actual code details, be funny but educational
 3. Write one quiz question per concept that tests understanding of that concept
 4. Write answer hints (comma-separated keywords an LLM grader would accept as correct)
+5. For advanced/code-specific questions: extract a short code excerpt (3-7 lines) from the diff that the question refers to, and the file path. For basic concept questions (e.g. "what is X?") leave both empty.
 
 Rules:
 - Respond ONLY with a valid JSON array. No markdown fences, no preamble, no explanation.
-- Each item must have exactly these fields: concept, roast_text, question_text, answer_hint
+- Each item must have exactly these fields: concept, roast_text, question_text, answer_hint, code_snippet, file_path
 - Roasts must reference specific variable names, function names, or patterns from the actual diff
 - Questions must be specific to the diff, not generic textbook questions
+- code_snippet: the 3-7 most relevant lines from the diff (without + / - prefixes, just the code). Include 1-2 lines of context above and below the key lines. Empty string for basic concept questions.
+- file_path: the file path relative to the repo root (e.g. "src/utils.py"). Empty string if no specific file applies.
 - If the diff is trivial (only whitespace, comments, config), return an empty array []
 
 Example output:
@@ -37,7 +40,9 @@ Example output:
     "concept": "memoization",
     "roast_text": "You wrote a recursive fib with zero caching. A CS101 student called, they want their homework back.",
     "question_text": "What technique would eliminate the redundant recomputation in your recursive fib function?",
-    "answer_hint": "memoization, caching, dynamic programming, lookup table, lru_cache"
+    "answer_hint": "memoization, caching, dynamic programming, lookup table, lru_cache",
+    "code_snippet": "def fib(n):\\n    if n <= 1:\\n        return n\\n    return fib(n - 1) + fib(n - 2)",
+    "file_path": "src/utils.py"
   }
 ]"""
 
@@ -188,6 +193,8 @@ async def extract_concepts_and_cache(
                     pr_title=pr_title,
                     source_type=source_type,
                     commit_sha=commit_sha,
+                    code_snippet=item.get("code_snippet", ""),
+                    file_path=item.get("file_path", ""),
                 )
             )
 

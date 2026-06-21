@@ -4,7 +4,6 @@ import {
   gradeAnswer,
   getConcept,
   listDueConcepts,
-  scheduleReview,
   transcribeAudio,
   USING_MOCK,
 } from "@/lib/api";
@@ -17,6 +16,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionBar,
+  CodeExcerptPanel,
   ConceptEyebrow,
   FailedPanel,
   type Phase,
@@ -166,13 +166,6 @@ export default function QuizPage() {
         const g = await gradeAnswer({ concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined, signal);
         setGrade(g);
         setPhase("result");
-        const nextTs = Date.parse(g.next_review);
-        if (!Number.isNaN(nextTs)) {
-          void scheduleReview(
-            session?.accessToken ?? "",
-            { concept_id: concept.id, next_review_timestamp: Math.floor(nextTs / 1000) },
-          );
-        }
       } catch (err: unknown) {
         if (isAbortError(err)) return;
         setErrorMsg("Something broke while scoring that. Try again in a moment.");
@@ -228,19 +221,41 @@ export default function QuizPage() {
   if (phase === "loading") return <LoadingPanel progress={displayedProgress} />;
   if (phase === "notfound" || !concept) return <NotFoundPanel progress={displayedProgress} />;
 
+  // Show the side-by-side code excerpt layout only for advanced questions
+  // (those where Claude populated a code_snippet) and only while the question
+  // is on screen (not during result / failed / thinking).
+  const hasSnippet = !!concept.code_snippet;
+  const showSplit = hasSnippet && (phase === "intro" || phase === "recording" || phase === "typing");
+
   return (
-    <Shell progress={displayedProgress}>
+    <Shell progress={displayedProgress} wide={showSplit}>
       <div className="flex-1 flex flex-col gap-7 pt-7 pb-4">
         <ConceptEyebrow concept={concept} />
 
         {phase === "speaking" && <SpeakingPanel />}
 
-        {(phase === "intro" || phase === "recording") && (
-          <RoastBubble roast={concept.roast_text} />
-        )}
-
-        {phase !== "result" && phase !== "failed" && phase !== "speaking" && (
-          <QuestionHero concept={concept} />
+        {/* Side-by-side layout: question left, code excerpt right */}
+        {showSplit ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,420px)] gap-6 items-start">
+            <div className="flex flex-col gap-6">
+              {(phase === "intro" || phase === "recording") && (
+                <RoastBubble roast={concept.roast_text} />
+              )}
+              {phase !== "result" && phase !== "failed" && phase !== "speaking" && (
+                <QuestionHero concept={concept} />
+              )}
+            </div>
+            <CodeExcerptPanel concept={concept} />
+          </div>
+        ) : (
+          <>
+            {(phase === "intro" || phase === "recording") && (
+              <RoastBubble roast={concept.roast_text} />
+            )}
+            {phase !== "result" && phase !== "failed" && phase !== "speaking" && (
+              <QuestionHero concept={concept} />
+            )}
+          </>
         )}
 
         {phase === "recording" && (

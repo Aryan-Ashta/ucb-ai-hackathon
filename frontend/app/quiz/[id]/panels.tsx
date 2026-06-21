@@ -43,7 +43,7 @@ export type Stage = "transcribing" | "grading";
 
 /* ─── Layout shell: header (exit + progress) + content column ───────────── */
 
-export function Shell({ children, progress }: { children: React.ReactNode; progress: number }) {
+export function Shell({ children, progress, wide }: { children: React.ReactNode; progress: number; wide?: boolean }) {
   return (
     <div className="min-h-screen bg-canvas text-ink flex flex-col">
       <header className="sticky top-0 z-10 bg-canvas/90 backdrop-blur border-b border-line">
@@ -58,7 +58,7 @@ export function Shell({ children, progress }: { children: React.ReactNode; progr
           <ProgressRail value={progress} />
         </div>
       </header>
-      <main className="mx-auto max-w-xl w-full px-5 flex-1 flex flex-col">{children}</main>
+      <main className={`mx-auto w-full px-5 flex-1 flex flex-col transition-all ${wide ? "max-w-5xl" : "max-w-xl"}`}>{children}</main>
       {USING_MOCK && (
         <div className="pointer-events-none fixed bottom-2 right-2 font-mono text-[10px] uppercase tracking-wider text-ink-faint">
           mock data
@@ -99,6 +99,53 @@ export function NotFoundPanel({ progress = 0 }: { progress?: number } = {}) {
         </div>
       </div>
     </Shell>
+  );
+}
+
+/* ─── Code excerpt panel (advanced questions only) ─────────────────────── */
+
+export function CodeExcerptPanel({ concept }: { concept: Concept }) {
+  const snippet = concept.code_snippet ?? "";
+  const filePath = concept.file_path ?? "";
+  if (!snippet) return null;
+
+  // Build a GitHub link to the PR diff or commit if we have enough info.
+  let githubUrl: string | null = null;
+  if (concept.repo) {
+    if (concept.source_type === "commit" && concept.commit_sha) {
+      githubUrl = `https://github.com/${concept.repo}/commit/${concept.commit_sha}`;
+    } else if (concept.pr_number) {
+      githubUrl = `https://github.com/${concept.repo}/pull/${concept.pr_number}/files`;
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 animate-rise" style={{ animationDelay: "80ms" }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0">
+            <path d="M5 4L2 8l3 4M11 4l3 4-3 4M9 2l-2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {filePath || "excerpt"}
+        </div>
+        {githubUrl && (
+          <a
+            href={githubUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 font-mono text-[10px] text-ink-faint hover:text-marigold transition-colors"
+          >
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            view on github
+          </a>
+        )}
+      </div>
+      <pre className="rounded-xl bg-[#0d1117] border border-line text-[12.5px] leading-[1.65] text-[#e6edf3] font-mono overflow-x-auto p-4 whitespace-pre">
+        <code>{snippet}</code>
+      </pre>
+    </div>
   );
 }
 

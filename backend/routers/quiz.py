@@ -19,7 +19,7 @@ router = APIRouter()
 # forwards `audio.content_type` to Deepgram and unknown types would just be
 # rejected upstream — fail fast with a clear error instead.
 MAX_AUDIO_BYTES: int = 10 * 1024 * 1024  # 10 MB
-ALLOWED_MIME_TYPES: set[str] = {"audio/webm", "audio/wav", "audio/mpeg", "audio/ogg"}
+ALLOWED_MIME_TYPES: set[str] = {"audio/webm", "audio/wav", "audio/mpeg", "audio/ogg", "audio/mp4"}
 MAX_TTS_CHARS: int = 2000
 
 

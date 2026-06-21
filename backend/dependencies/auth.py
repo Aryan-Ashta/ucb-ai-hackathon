@@ -1,4 +1,5 @@
 """FastAPI dependencies for auth."""
+
 import hashlib
 import time
 from typing import Annotated
@@ -31,17 +32,9 @@ def _cache_key(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-async def get_current_user(authorization: Annotated[str | None, Header()] = None) -> dict:
-    """
-    Validate the GitHub OAuth access token in the Authorization header.
-
-    1. Parse the `Bearer <token>` header.
-    2. Check the in-process cache (60s TTL, bounded to 10k entries — P1-B2).
-    3. On miss, call `GET {GITHUB_API_BASE}/user` with the token.
-    4. On success, encrypt and persist the token in Redis via `token_store`.
-    5. Return `{"id": str(github_id), "login": login, "token": raw_token}`.
-
-    Raises 401 on any failure.
+async def authenticate_bearer(authorization: str | None) -> dict:
+    """Resolve a Bearer token to a user dict. Used by both the HTTP dependency
+    and the WebSocket handler. Raises HTTPException(401) on any failure.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -97,3 +90,20 @@ async def get_current_user(authorization: Annotated[str | None, Header()] = None
 
     _USER_CACHE[cache_key] = (user_id, login, now + _USER_CACHE_TTL_SECONDS)
     return {"id": user_id, "login": login, "token": token}
+
+
+async def get_current_user(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
+    """
+    Validate the GitHub OAuth access token in the Authorization header.
+
+    1. Parse the `Bearer <token>` header.
+    2. Check the in-process cache (60s TTL, bounded to 10k entries — P1-B2).
+    3. On miss, call `GET {GITHUB_API_BASE}/user` with the token.
+    4. On success, encrypt and persist the token in Redis via `token_store`.
+    5. Return `{"id": str(github_id), "login": login, "token": raw_token}`.
+
+    Raises 401 on any failure.
+    """
+    return await authenticate_bearer(authorization)

@@ -16,6 +16,7 @@ pydantic==2.13.4
 python-multipart==0.0.20
 cachetools==7.1.4
 cryptography==49.0.0
+websockets==15.0.1
 
 # --- test dependencies ---
 pytest==9.1.1

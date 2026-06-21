@@ -83,6 +83,9 @@ export default function Dashboard() {
   const [syncSummary, setSyncSummary] = useState<string | null>(null);
   const syncSummaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showAllDue, setShowAllDue] = useState(false);
+  const [showAllPRs, setShowAllPRs] = useState(false);
+  const [showAllCommits, setShowAllCommits] = useState(false);
 
   const hasAutoSyncedRef = useRef(false);
   const syncingRef = useRef(false);
@@ -390,7 +393,7 @@ export default function Dashboard() {
             </div>
           ) : dueItems.length > 0 ? (
             <div className="flex flex-col gap-[9px]">
-              {dueItems.map((d) => (
+              {(showAllDue ? dueItems : dueItems.slice(0, 5)).map((d) => (
                 <a
                   key={d.id}
                   href={`/quiz/${encodeURIComponent(d.id)}`}
@@ -408,6 +411,16 @@ export default function Dashboard() {
                   <span className="text-ink-faint">→</span>
                 </a>
               ))}
+              {dueItems.length > 5 && (
+                <button
+                  onClick={() => setShowAllDue((v) => !v)}
+                  className="w-full rounded-[13px] border border-dashed border-line py-2.5 font-mono text-[11px] text-ink-faint hover:text-ink-dim hover:border-ink-faint transition-colors"
+                >
+                  {showAllDue
+                    ? "show less"
+                    : `+ ${dueItems.length - 5} more`}
+                </button>
+              )}
             </div>
           ) : (
             <div className="rounded-2xl bg-surface-1 border border-line px-6 py-10 text-center">
@@ -456,7 +469,7 @@ export default function Dashboard() {
               <div className="mb-[13px] font-mono text-[11px] uppercase tracking-[0.12em] text-ink-faint">
                 Coverage by PR
               </div>
-              <div className="flex flex-col gap-[13px]">
+              <div className="flex flex-col gap-[13px] max-h-48 overflow-y-auto pr-1">
                 {allPrs.length === 0 ? (
                   <p className="font-mono text-[11px] text-ink-faint">
                     No PRs synced yet.
@@ -541,9 +554,17 @@ export default function Dashboard() {
           <section className="mt-6">
             <SectionLabel>concept bank · {totalConcepts}</SectionLabel>
             <div className="flex flex-col gap-4">
-              {allPrs.map((pr) => (
+              {(showAllPRs ? allPrs : allPrs.slice(0, 3)).map((pr) => (
                 <PRBlock key={pr.pr_number} pr={pr} />
               ))}
+              {allPrs.length > 3 && (
+                <button
+                  onClick={() => setShowAllPRs((v) => !v)}
+                  className="w-full rounded-2xl border border-dashed border-line py-3 font-mono text-[11px] text-ink-faint hover:text-ink-dim hover:border-ink-faint transition-colors"
+                >
+                  {showAllPRs ? "show less" : `+ ${allPrs.length - 3} more PR${allPrs.length - 3 === 1 ? "" : "s"}`}
+                </button>
+              )}
             </div>
           </section>
         )}
@@ -555,9 +576,17 @@ export default function Dashboard() {
               {commitGroups.reduce((n, g) => n + g.concepts.length, 0)}
             </SectionLabel>
             <div className="flex flex-col gap-4">
-              {commitGroups.map((g) => (
+              {(showAllCommits ? commitGroups : commitGroups.slice(0, 3)).map((g) => (
                 <CommitBlock key={g.repo} group={g} />
               ))}
+              {commitGroups.length > 3 && (
+                <button
+                  onClick={() => setShowAllCommits((v) => !v)}
+                  className="w-full rounded-2xl border border-dashed border-line py-3 font-mono text-[11px] text-ink-faint hover:text-ink-dim hover:border-ink-faint transition-colors"
+                >
+                  {showAllCommits ? "show less" : `+ ${commitGroups.length - 3} more repo${commitGroups.length - 3 === 1 ? "" : "s"}`}
+                </button>
+              )}
             </div>
           </section>
         )}
