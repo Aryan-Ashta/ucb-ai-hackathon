@@ -22,7 +22,7 @@ export function DueCard({ concept }: { concept: Concept & { prTitle: string } })
 
   return (
     <a
-      href={`/quiz/${concept.id}`}
+      href={`/quiz/${encodeURIComponent(concept.id)}`}
       className={`group flex items-center gap-4 rounded-xl bg-surface-1 border border-line border-l-2 px-4 py-3.5 hover:bg-surface-2 transition-colors ${
         isOverdue ? "border-l-coral" : "border-l-marigold"
       }`}
@@ -52,7 +52,7 @@ export function ConceptRow({ concept }: { concept: Concept }) {
 
   return (
     <a
-      href={`/quiz/${concept.id}`}
+      href={`/quiz/${encodeURIComponent(concept.id)}`}
       className="group flex items-center gap-3 rounded-lg bg-surface-2 hover:bg-line border border-line px-3 py-2.5 transition-colors"
     >
       <div className="flex-1 min-w-0">
@@ -145,7 +145,7 @@ export function CommitRow({ concept }: { concept: Concept }) {
 
   return (
     <a
-      href={`/quiz/${concept.id}`}
+      href={`/quiz/${encodeURIComponent(concept.id)}`}
       className="group flex items-center gap-3 rounded-lg bg-surface-2 hover:bg-line border border-line px-3 py-2.5 transition-colors"
     >
       <span className="font-mono text-[11px] text-marigold shrink-0 tabular-nums" title={concept.commit_sha}>

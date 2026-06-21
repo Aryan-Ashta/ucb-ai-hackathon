@@ -69,9 +69,9 @@ export function Shell({ children, progress }: { children: React.ReactNode; progr
 
 /* ─── Loading + notfound placeholders (kept inline because they're tiny) ── */
 
-export function LoadingPanel() {
+export function LoadingPanel({ progress = 0 }: { progress?: number } = {}) {
   return (
-    <Shell progress={0}>
+    <Shell progress={progress}>
       <div className="flex-1 grid place-items-center">
         <Duck className="w-14 h-14 animate-breathe" />
       </div>
@@ -79,9 +79,9 @@ export function LoadingPanel() {
   );
 }
 
-export function NotFoundPanel() {
+export function NotFoundPanel({ progress = 0 }: { progress?: number } = {}) {
   return (
-    <Shell progress={0}>
+    <Shell progress={progress}>
       <div className="flex-1 grid place-items-center text-center px-6">
         <div>
           <Duck className="w-14 h-14 mx-auto mb-4" />
