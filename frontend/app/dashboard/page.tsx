@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getMockPRs, type DashboardPR } from "@/lib/mock";
 import type { Concept } from "@/lib/types";
-import { api, ApiError, USING_MOCK } from "@/lib/api";
+import { api, USING_MOCK } from "@/lib/api";
+import { apiErrorToMessage } from "@/lib/api-error";
 import { formatDue, getDueStatus, masteryPct, mergedAgo } from "@/lib/format";
 
 type PR = DashboardPR;
@@ -61,25 +62,12 @@ function groupByCommit(concepts: Concept[]): CommitGroup[] {
 
 /**
  * Map a dashboard fetch failure to a friendly user-facing message.
- * Always logs the raw error to console.warn so debugging visibility is preserved
- * in the browser console without leaking the raw "API 500 ..." string to the UI.
+ * Thin wrapper around the shared apiErrorToMessage — kept as a named
+ * helper so the call site reads as "the dashboard fetch failed" instead
+ * of the more generic "ctx".
  */
 function friendlyFetchError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  console.warn("[dashboard] listDueConcepts failed:", raw);
-
-  if (err instanceof ApiError) {
-    if (err.status === 401) return "Your session expired. Please sign in again.";
-    if (err.status === 403) return "You don't have access to this resource.";
-    if (err.status === 404) return "No concepts found yet.";
-    if (err.status >= 500 && err.status <= 599)
-      return "VibeSchool is taking a quick break. Try again in a moment.";
-  }
-  // Fetch network failure (backend down, CORS, offline) surfaces as TypeError.
-  if (err instanceof TypeError) {
-    return "Can't reach VibeSchool — is the backend running on localhost:8000?";
-  }
-  return "Couldn't load your concepts. Try again.";
+  return apiErrorToMessage(err, "dashboard listDueConcepts");
 }
 
 // --- Components ---
@@ -316,9 +304,8 @@ export default function Dashboard() {
       setAllPrs(groupByPR(allData.concepts));
       setCommitGroups(groupByCommit(allData.concepts));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = apiErrorToMessage(err, "dashboard sync");
       setSyncError(msg);
-      console.warn("[dashboard] sync failed:", err);
     } finally {
       syncingRef.current = false;
       setSyncing(false);

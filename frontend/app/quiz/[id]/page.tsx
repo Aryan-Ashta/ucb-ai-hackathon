@@ -2,6 +2,7 @@
 
 import { gradeAnswer, getConcept, transcribeAudio, USING_MOCK } from "@/lib/api";
 import type { Concept, GradeResult } from "@/lib/types";
+import { isAbortError } from "@/lib/api-error";
 import { daysUntil, formatNextReview, formatTime, masteryPct } from "@/lib/format";
 import { useRecorder } from "@/lib/useRecorder";
 import { useSession } from "next-auth/react";
@@ -63,8 +64,7 @@ export default function QuizPage() {
         setPhase(c ? "intro" : "notfound");
       })
       .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err && typeof err === "object" && "name" in err && (err as { name?: string }).name === "AbortError") return;
+        if (isAbortError(err)) return;
         setConcept(null);
         setPhase("notfound");
       });
@@ -101,8 +101,7 @@ export default function QuizPage() {
         setGrade(g);
         setPhase("result");
       } catch (err: unknown) {
-        if (err && typeof err === "object" && "name" in err && (err as { name?: string }).name === "AbortError") return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (isAbortError(err)) return;
         setErrorMsg("Something broke while scoring that. Try again in a moment.");
         setPhase("failed");
       }
