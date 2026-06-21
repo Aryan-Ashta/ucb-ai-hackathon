@@ -2,6 +2,7 @@
 
 import { gradeAnswer, getConcept, transcribeAudio, USING_MOCK } from "@/lib/api";
 import type { Concept, GradeResult } from "@/lib/types";
+import { daysUntil, formatNextReview, formatTime, masteryPct } from "@/lib/format";
 import { useRecorder } from "@/lib/useRecorder";
 import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
@@ -570,28 +571,6 @@ function ActionBar({
   );
 }
 
-/* ─── Helpers ───────────────────────────────────────────────────────────── */
-
-function formatTime(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
-
-function masteryPct(intervalDays: number): number {
-  return Math.min(Math.round((intervalDays / 30) * 100), 100);
-}
-
-function daysUntil(iso: string): number {
-  return Math.max(0, (new Date(iso).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-}
-
-function formatNextReview(iso: string): string {
-  const d = daysUntil(iso);
-  if (d < 1) {
-    const h = Math.round(d * 24);
-    return h <= 1 ? "in about an hour" : `in ${h} hours`;
-  }
-  const days = Math.round(d);
-  return days === 1 ? "tomorrow" : `in ${days} days`;
-}
+/* ─── Helpers (formatTime, masteryPct, daysUntil, formatNextReview live in
+   @/lib/format — shared with the dashboard). Nothing page-specific to keep
+   here at the moment. ──────────────────────────────────────────────────── */

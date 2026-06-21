@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getMockPRs, type DashboardPR } from "@/lib/mock";
 import type { Concept } from "@/lib/types";
 import { api, ApiError, USING_MOCK } from "@/lib/api";
+import { formatDue, getDueStatus, masteryPct, mergedAgo } from "@/lib/format";
 
 type PR = DashboardPR;
 
@@ -13,44 +14,6 @@ type PR = DashboardPR;
 interface CommitGroup {
   repo: string;
   concepts: Concept[];
-}
-
-// --- Time helpers ---
-
-const DAY = 24 * 60 * 60 * 1000;
-const HOUR = 60 * 60 * 1000;
-const MIN = 60 * 1000;
-
-function getDueStatus(nextReview: string): "overdue" | "today" | "upcoming" {
-  const diff = new Date(nextReview).getTime() - Date.now();
-  if (diff < 0) return "overdue";
-  if (diff < DAY) return "today";
-  return "upcoming";
-}
-
-function formatDue(nextReview: string): string {
-  const diff = new Date(nextReview).getTime() - Date.now();
-  if (diff < 0) {
-    const ago = Math.abs(diff);
-    if (ago < HOUR) return `${Math.floor(ago / MIN)}m overdue`;
-    if (ago < DAY) return `${Math.floor(ago / HOUR)}h overdue`;
-    return `${Math.floor(ago / DAY)}d overdue`;
-  }
-  if (diff < HOUR) return `in ${Math.floor(diff / MIN)}m`;
-  if (diff < DAY) return `in ${Math.floor(diff / HOUR)}h`;
-  return `in ${Math.floor(diff / DAY)}d`;
-}
-
-function mergedAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < HOUR) return "just now";
-  if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
-  const d = Math.floor(diff / DAY);
-  return d === 1 ? "yesterday" : `${d}d ago`;
-}
-
-function masteryPct(interval: number): number {
-  return Math.min(Math.round((interval / 30) * 100), 100);
 }
 
 /** Group a flat concept list into PRs by pr_number (PR-sourced only).
@@ -70,7 +33,7 @@ function groupByPR(concepts: Concept[]): PR[] {
       pr_number,
       repo: cs[0].repo ?? "",
       title: cs[0].pr_title ?? `PR #${pr_number}`,
-      merged_at: new Date(Date.now() - 2 * DAY).toISOString(),
+      merged_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       concepts: cs,
     };
   });
