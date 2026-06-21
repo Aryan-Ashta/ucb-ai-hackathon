@@ -240,3 +240,9 @@ export async function gradeAnswer(
 const MOCK_TRANSCRIPT =
   "I'd use memoization to cache the results of each subproblem in a lookup table, " +
   "so repeated calls return instantly instead of recomputing. That's basically dynamic programming.";
+
+// Top-level re-export for components that import via named bindings
+// (the quiz page uses `import { scheduleReview } from "@/lib/api"`) while
+// the dashboard namespace still uses `api.scheduleReview(...)`. Keeps
+// both call-site shapes working without a refactor.
+export const scheduleReview = api.scheduleReview;
