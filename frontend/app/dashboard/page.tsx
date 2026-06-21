@@ -9,6 +9,7 @@ import { apiErrorToMessage, isAbortError } from "@/lib/api-error";
 import { getDueStatus } from "@/lib/format";
 import { type PR, type CommitGroup, groupByPR, groupByCommit } from "@/lib/group-concepts";
 import { CommitBlock, DueCard, PRBlock, SectionLabel } from "./components";
+import { anySignal } from "@/lib/abort";
 
 /**
  * Thin wrapper around apiErrorToMessage for this page's fetch path —
@@ -68,28 +69,43 @@ export default function Dashboard() {
 
   // Manual + auto sync trigger. Caller passes the bearer token explicitly
   // (no `session!.accessToken!` non-null assertion per P1-F1).
-  const triggerSync = useCallback(async (token: string) => {
+  // Trace 3 M2/M3: optional AbortSignal threads through to the POST and
+  // the post-sync re-fetch so unmount cancels both.
+  const syncCtrlRef = useRef<AbortController | null>(null);
+  const triggerSync = useCallback(async (token: string, signal?: AbortSignal) => {
     if (syncingRef.current) return;
     syncingRef.current = true;
     setSyncing(true);
     setSyncError(null);
+    const inner = new AbortController();
+    syncCtrlRef.current = inner;
+    const composed = anySignal([inner.signal, signal ?? null]);
     try {
-      await api.triggerSync(token);
+      await api.triggerSync(token, composed.signal);
       // Re-fetch both lists so the UI updates immediately when sync completes.
       const [dueData, allData] = await Promise.all([
-        api.listDueConcepts(token),
-        api.listAllConcepts(token),
+        api.listDueConcepts(token, composed.signal),
+        api.listAllConcepts(token, composed.signal),
       ]);
       setPrs(groupByPR(dueData.due));
       setAllPrs(groupByPR(allData.concepts));
       setCommitGroups(groupByCommit(allData.concepts));
     } catch (err) {
+      if (isAbortError(err)) return;
       const msg = apiErrorToMessage(err, "dashboard sync");
       setSyncError(msg);
     } finally {
       syncingRef.current = false;
       setSyncing(false);
+      if (syncCtrlRef.current === inner) syncCtrlRef.current = null;
     }
+  }, []);
+
+  // Abort in-flight sync on unmount (Trace 3 M2/M3).
+  useEffect(() => {
+    return () => {
+      syncCtrlRef.current?.abort();
+    };
   }, []);
 
   // Live backend: fetch due concepts and group into PRs. Auto-trigger a sync

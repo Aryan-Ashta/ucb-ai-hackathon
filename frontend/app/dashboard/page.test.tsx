@@ -204,7 +204,7 @@ describe("Dashboard / authenticated, fetch results", () => {
     render(<Dashboard />);
 
     await waitFor(() => {
-      expect(mockTriggerSync).toHaveBeenCalledWith("test-token");
+      expect(mockTriggerSync).toHaveBeenCalledWith("test-token", expect.any(AbortSignal));
     });
     // P2-D3 (Trace M1): after the auto-sync fires, sessionStorage must
     // carry the flag so a remount doesn't re-fire it.
@@ -276,7 +276,7 @@ describe("Dashboard / authenticated, fetch results", () => {
     await user.click(screen.getByRole("button", { name: /^sync$/i }));
 
     await waitFor(() => {
-      expect(mockTriggerSync).toHaveBeenCalledWith("test-token");
+      expect(mockTriggerSync).toHaveBeenCalledWith("test-token", expect.any(AbortSignal));
     });
   });
 

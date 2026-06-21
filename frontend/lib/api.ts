@@ -127,10 +127,11 @@ export const api = {
     }),
 
   // Used by frontend/app/dashboard/page.tsx (auto-sync + manual sync button).
-  triggerSync: (token: string) =>
+  triggerSync: (token: string, signal?: AbortSignal) =>
     apiFetch<SyncTriggerResponse>("/api/sync", {
       method: "POST",
       accessToken: token,
+      ...(signal ? { signal } : {}),
     }),
 
   transcribeAudio: async (
