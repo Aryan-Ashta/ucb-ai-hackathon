@@ -3,10 +3,17 @@ Claude tests.
 
 Pure helper tests (fence stripping) run anywhere. The live extraction test runs only
 when a real ANTHROPIC_API_KEY and a reachable Redis are present.
-"""
-import os
 
-from backend.services.claude import _strip_fences
+The `grade_answer` tests mock `backend.services.claude.client` with unittest.mock
+(AsyncMock + MagicMock) so they run without a real ANTHROPIC_API_KEY. They cover the
+happy path, graceful handling of malformed JSON, and clamping of out-of-range quality
+scores.
+"""
+import json
+import os
+from unittest.mock import AsyncMock, MagicMock
+
+from backend.services.claude import _strip_fences, grade_answer
 
 
 def _has_real_key() -> bool:
@@ -49,3 +56,85 @@ async def test_live_extraction():
         assert c.roast_text
         assert c.question_text
         assert c.answer_hint
+
+
+# ---------------------------------------------------------------------------
+# grade_answer tests — all run without a real ANTHROPIC_API_KEY by patching
+# `backend.services.claude.client` with an AsyncMock. These tests cover the
+# post-fix contract: AsyncAnthropic client (await), try/except around json.loads
+# (graceful default on malformed JSON), quality clamping to [0, 5], and bool
+# coercion of `passed`.
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_message(text: str) -> MagicMock:
+    """Build a fake anthropic Message: `.content[0].text == text`."""
+    msg = MagicMock()
+    msg.content = [MagicMock(text=text)]
+    return msg
+
+
+def _patch_client(monkeypatch, fake_message: MagicMock) -> AsyncMock:
+    """Replace `backend.services.claude.client` with a mock whose async
+    `messages.create` returns `fake_message`. Returns the AsyncMock so callers
+    can assert on call args if desired.
+    """
+    fake_client = MagicMock()
+    create_mock = AsyncMock(return_value=fake_message)
+    fake_client.messages.create = create_mock
+    monkeypatch.setattr("backend.services.claude.client", fake_client)
+    return create_mock
+
+
+async def test_grade_answer_happy_path(monkeypatch):
+    """Happy path: Claude returns well-formed JSON; grade_answer returns it parsed."""
+    payload = {"quality": 3, "passed": True, "explanation": "good answer"}
+    _patch_client(monkeypatch, _make_fake_message(json.dumps(payload)))
+
+    result = await grade_answer(
+        "What technique eliminates redundant recomputation in your recursive fib?",
+        "memoization, caching, dynamic programming",
+        "you cache the results so you don't recompute",
+    )
+
+    assert isinstance(result, dict)
+    assert result["quality"] == 3
+    assert result["passed"] is True
+    assert result["explanation"] == "good answer"
+
+
+async def test_grade_answer_malformed_json_graceful_default(monkeypatch):
+    """Malformed JSON from Claude must not raise — grade_answer returns a
+    graceful default with passed=False, quality=0, and a non-empty explanation.
+    """
+    _patch_client(monkeypatch, _make_fake_message("not valid json {{{"))
+
+    # Must not raise
+    result = await grade_answer("question", "hint", "student transcript")
+
+    assert isinstance(result, dict)
+    assert result["passed"] is False
+    assert result["quality"] == 0
+    explanation = result.get("explanation", "")
+    assert isinstance(explanation, str)
+    assert len(explanation) > 0
+
+
+async def test_grade_answer_quality_clamped_high(monkeypatch):
+    """Out-of-range high quality (7) must clamp down to 5."""
+    payload = {"quality": 7, "passed": True, "explanation": "great"}
+    _patch_client(monkeypatch, _make_fake_message(json.dumps(payload)))
+
+    result = await grade_answer("question", "hint", "student transcript")
+
+    assert result["quality"] == 5
+
+
+async def test_grade_answer_quality_clamped_low(monkeypatch):
+    """Negative quality (-2) must clamp up to 0."""
+    payload = {"quality": -2, "passed": True, "explanation": "off"}
+    _patch_client(monkeypatch, _make_fake_message(json.dumps(payload)))
+
+    result = await grade_answer("question", "hint", "student transcript")
+
+    assert result["quality"] == 0
