@@ -148,7 +148,9 @@ export const api = {
     signal?: AbortSignal,
   ): Promise<{ transcript: string; error?: string }> => {
     const fd = new FormData();
-    fd.append("audio", blob, filename);
+    const mime = (blob.type || "audio/webm").split(";", 1)[0]!.trim().toLowerCase();
+    const ext = mime === "audio/wav" ? "wav" : mime === "audio/mpeg" ? "mp3" : mime === "audio/ogg" ? "ogg" : "webm";
+    fd.append("audio", blob, filename.endsWith(`.${ext}`) ? filename : `answer.${ext}`);
     const res = await fetch(`${BACKEND}/api/transcribe`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -160,6 +162,23 @@ export const api = {
       throw new ApiError(res.status, body, `API ${res.status} on POST /api/transcribe`);
     }
     return (await res.json()) as { transcript: string; error?: string };
+  },
+
+  synthesizeSpeech: async (token: string, text: string, signal?: AbortSignal): Promise<Blob> => {
+    const res = await fetch(`${BACKEND}/api/tts`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new ApiError(res.status, body, `API ${res.status} on POST /api/tts`);
+    }
+    return res.blob();
   },
 
   // H1 (Trace 2): calendar event hook. Backend pulls the calendar_id from
@@ -191,6 +210,22 @@ export const api = {
 };
 
 // --- Quiz-UI compatible functions (mock or live) ---
+
+/** Fetch due concepts for quiz navigation. */
+export async function listDueConcepts(
+  accessToken?: string,
+  signal?: AbortSignal,
+): Promise<Concept[]> {
+  if (USING_MOCK) {
+    await delay(100);
+    const { MOCK_CONCEPTS } = await import("./mock");
+    return MOCK_CONCEPTS.filter(
+      (c) => new Date(c.next_review).getTime() - Date.now() < 24 * 60 * 60 * 1000,
+    );
+  }
+  const data = await api.listDueConcepts(accessToken ?? "", signal);
+  return data.due;
+}
 
 /** Fetch a single concept by id. In live mode, tries the single-concept endpoint first
  * (works regardless of due status) and falls back to the due-list on 404 for backwards compat. */
@@ -227,7 +262,9 @@ export async function transcribeAudio(
     await delay(1100);
     return { transcript: MOCK_TRANSCRIPT };
   }
-  return api.transcribeAudio(accessToken ?? "", audio, "answer.webm", signal);
+  const mime = (audio.type || "audio/webm").split(";", 1)[0]!.trim().toLowerCase();
+  const ext = mime === "audio/wav" ? "wav" : mime === "audio/mpeg" ? "mp3" : mime === "audio/ogg" ? "ogg" : "webm";
+  return api.transcribeAudio(accessToken ?? "", audio, `answer.${ext}`, signal);
 }
 
 /** Grade a transcript against a concept. In live mode, calls /api/grade with bearer auth. */

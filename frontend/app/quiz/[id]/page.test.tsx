@@ -7,17 +7,20 @@
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Concept } from "@/lib/types";
 
 // ─── Module mocks (must precede the page import) ───────────────────────
 
 const mockGetConcept = vi.fn();
+const mockListDueConcepts = vi.fn();
 const mockTranscribeAudio = vi.fn();
 const mockGradeAnswer = vi.fn();
 const mockScheduleReview = vi.fn();
 const mockUseRecorder = vi.fn();
+const mockSpeakSequence = vi.fn();
+const mockTtsAbort = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "u_1:42:memoization" }),
@@ -28,8 +31,17 @@ vi.mock("next-auth/react", () => ({
   useSession: () => ({ data: { accessToken: "test-token" } }),
 }));
 
+vi.mock("@/lib/useTts", () => ({
+  useTts: () => ({
+    speak: vi.fn().mockResolvedValue(undefined),
+    speakSequence: (...args: unknown[]) => mockSpeakSequence(...args),
+    abort: mockTtsAbort,
+  }),
+}));
+
 vi.mock("@/lib/api", () => ({
   getConcept: (...args: unknown[]) => mockGetConcept(...args),
+  listDueConcepts: (...args: unknown[]) => mockListDueConcepts(...args),
   transcribeAudio: (...args: unknown[]) => mockTranscribeAudio(...args),
   gradeAnswer: (...args: unknown[]) => mockGradeAnswer(...args),
   scheduleReview: (...args: unknown[]) => mockScheduleReview(...args),
@@ -63,29 +75,35 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+function mockRecorder() {
+  return {
+    state: "idle" as const,
+    seconds: 0,
+    levels: new Array(28).fill(0),
+    start: vi.fn(),
+    stop: vi.fn(),
+    reset: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  mockListDueConcepts.mockResolvedValue([]);
+  mockSpeakSequence.mockResolvedValue(undefined);
+});
+
 // ─── Initial render states ─────────────────────────────────────────────
 
 describe("QuizPage / initial render", () => {
   it("shows the loading duck while getConcept is in flight", () => {
-    mockGetConcept.mockReturnValue(new Promise(() => {})); // never resolves
-    mockUseRecorder.mockReturnValue({
-      state: "idle",
-      seconds: 0,
-      levels: new Array(28).fill(0),
-      start: vi.fn(),
-      stop: vi.fn(),
-      reset: vi.fn(),
-    });
+    mockGetConcept.mockReturnValue(new Promise(() => {}));
+    mockUseRecorder.mockReturnValue(mockRecorder());
     render(<QuizPage />);
     expect(document.querySelector(".animate-breathe")).toBeInTheDocument();
   });
 
   it("shows the NotFound panel when getConcept returns null", async () => {
     mockGetConcept.mockResolvedValue(null);
-    mockUseRecorder.mockReturnValue({
-      state: "idle", seconds: 0, levels: new Array(28).fill(0),
-      start: vi.fn(), stop: vi.fn(), reset: vi.fn(),
-    });
+    mockUseRecorder.mockReturnValue(mockRecorder());
     render(<QuizPage />);
     await waitFor(() => {
       expect(screen.getByText(/Nothing to review here/i)).toBeInTheDocument();
@@ -94,10 +112,7 @@ describe("QuizPage / initial render", () => {
 
   it("renders the intro state when a concept loads", async () => {
     mockGetConcept.mockResolvedValue(concept);
-    mockUseRecorder.mockReturnValue({
-      state: "idle", seconds: 0, levels: new Array(28).fill(0),
-      start: vi.fn(), stop: vi.fn(), reset: vi.fn(),
-    });
+    mockUseRecorder.mockReturnValue(mockRecorder());
     render(<QuizPage />);
     await waitFor(() => {
       expect(screen.getByText(/What technique eliminates/i)).toBeInTheDocument();
@@ -111,10 +126,7 @@ describe("QuizPage / initial render", () => {
 describe("QuizPage / phase transitions", () => {
   function setupReady() {
     mockGetConcept.mockResolvedValue(concept);
-    mockUseRecorder.mockReturnValue({
-      state: "idle", seconds: 0, levels: new Array(28).fill(0),
-      start: vi.fn(), stop: vi.fn(), reset: vi.fn(),
-    });
+    mockUseRecorder.mockReturnValue(mockRecorder());
   }
 
   it("intro → typing on 'Prefer to type?' click", async () => {
@@ -220,10 +232,7 @@ describe("QuizPage / failure paths", () => {
   it("shows 'failed' phase when gradeAnswer rejects with a non-AbortError", async () => {
     const user = userEvent.setup();
     mockGetConcept.mockResolvedValue(concept);
-    mockUseRecorder.mockReturnValue({
-      state: "idle", seconds: 0, levels: new Array(28).fill(0),
-      start: vi.fn(), stop: vi.fn(), reset: vi.fn(),
-    });
+    mockUseRecorder.mockReturnValue(mockRecorder());
     mockGradeAnswer.mockRejectedValue(new Error("claude down"));
 
     render(<QuizPage />);
@@ -245,10 +254,7 @@ describe("QuizPage / failure paths", () => {
   it("Try again returns to intro with cleared state", async () => {
     const user = userEvent.setup();
     mockGetConcept.mockResolvedValue(concept);
-    mockUseRecorder.mockReturnValue({
-      state: "idle", seconds: 0, levels: new Array(28).fill(0),
-      start: vi.fn(), stop: vi.fn(), reset: vi.fn(),
-    });
+    mockUseRecorder.mockReturnValue(mockRecorder());
     mockGradeAnswer.mockRejectedValue(new Error("claude down"));
 
     render(<QuizPage />);
@@ -275,10 +281,7 @@ describe("QuizPage / failure paths", () => {
     // First mount: getConcept resolves null (not found).
     // Second mount (different id): getConcept throws an AbortError.
     // The page should not flip back to notfound on the abort.
-    mockUseRecorder.mockReturnValue({
-      state: "idle", seconds: 0, levels: new Array(28).fill(0),
-      start: vi.fn(), stop: vi.fn(), reset: vi.fn(),
-    });
+    mockUseRecorder.mockReturnValue(mockRecorder());
     mockGetConcept.mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }));
 
     render(<QuizPage />);
