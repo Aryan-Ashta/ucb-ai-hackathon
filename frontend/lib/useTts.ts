@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 
 function playBlob(blob: Blob, signal: AbortSignal): Promise<void> {
@@ -45,10 +45,12 @@ function playBlob(blob: Blob, signal: AbortSignal): Promise<void> {
 
 export function useTts() {
   const abortRef = useRef<AbortController | null>(null);
+  const [activeText, setActiveText] = useState<string | null>(null);
 
   const abort = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    setActiveText(null);
   }, []);
 
   useEffect(() => abort, [abort]);
@@ -57,8 +59,13 @@ export function useTts() {
     abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    const blob = await api.synthesizeSpeech(token, text, ctrl.signal);
-    await playBlob(blob, ctrl.signal);
+    try {
+      setActiveText(text);
+      const blob = await api.synthesizeSpeech(token, text, ctrl.signal);
+      await playBlob(blob, ctrl.signal);
+    } finally {
+      setActiveText(null);
+    }
   }, [abort]);
 
   const speakSequence = useCallback(
@@ -66,14 +73,19 @@ export function useTts() {
       abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
-      for (const text of texts) {
-        if (ctrl.signal.aborted) throw new DOMException("Aborted", "AbortError");
-        const blob = await api.synthesizeSpeech(token, text, ctrl.signal);
-        await playBlob(blob, ctrl.signal);
+      try {
+        for (const text of texts) {
+          if (ctrl.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          setActiveText(text);
+          const blob = await api.synthesizeSpeech(token, text, ctrl.signal);
+          await playBlob(blob, ctrl.signal);
+        }
+      } finally {
+        setActiveText(null);
       }
     },
     [abort],
   );
 
-  return { speak, speakSequence, abort };
+  return { speak, speakSequence, abort, activeText };
 }

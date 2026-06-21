@@ -101,13 +101,30 @@ export function Eyebrow({ concept }: { concept: Concept }) {
 
 /* ─── Examiner roast, styled like a PR review comment ───────────────────── */
 
-export function ExaminerBubble({ roast }: { roast: string }) {
+export function ExaminerBubble({ roast, isSpeaking }: { roast: string; isSpeaking?: boolean }) {
   return (
     <div className="flex gap-3 animate-rise" style={{ animationDelay: "60ms" }}>
-      <Duck className="w-9 h-9 shrink-0" />
-      <div className="min-w-0 rounded-2xl rounded-tl-sm bg-surface-1 border border-line border-l-2 border-l-coral px-4 py-3">
-        <div className="font-mono text-[11px] uppercase tracking-wider text-ink-faint mb-1">
-          the examiner
+      <Duck className={`w-9 h-9 shrink-0 transition-transform ${isSpeaking ? "animate-breathe" : ""}`} />
+      <div
+        className={`min-w-0 rounded-2xl rounded-tl-sm bg-surface-1 border border-l-2 px-4 py-3 transition-colors ${
+          isSpeaking ? "border-marigold border-l-marigold" : "border-line border-l-coral"
+        }`}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink-faint">
+            the examiner
+          </span>
+          {isSpeaking && (
+            <span className="inline-flex items-end gap-[2px]" aria-label="speaking" aria-hidden>
+              {[4, 7, 5, 8, 4].map((h, i) => (
+                <span
+                  key={i}
+                  className="inline-block w-[2px] rounded-full bg-marigold animate-pulse"
+                  style={{ height: `${h}px`, animationDelay: `${i * 90}ms`, animationDuration: "0.9s" }}
+                />
+              ))}
+            </span>
+          )}
         </div>
         <p
           className="font-mono text-sm leading-relaxed text-ink-dim text-pretty"

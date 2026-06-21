@@ -478,6 +478,29 @@ export function ActionBar({
   );
 }
 
+/* ─── Animated audio badge — shown on the element currently being voiced ── */
+
+function AudioBadge({ label }: { label?: string }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-2">
+      <span className="inline-flex items-end gap-[2.5px]" aria-hidden>
+        {[5, 9, 7, 11, 6, 8, 5].map((h, i) => (
+          <span
+            key={i}
+            className="inline-block w-[2.5px] rounded-full bg-marigold animate-pulse"
+            style={{ height: `${h}px`, animationDelay: `${i * 80}ms`, animationDuration: "1s" }}
+          />
+        ))}
+      </span>
+      {label && (
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-marigold">
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /* ─── Convenience header pieces (used by page.tsx between phases) ───────── */
 
 export function ConceptEyebrow({ concept }: { concept: Concept }) {
@@ -486,17 +509,17 @@ export function ConceptEyebrow({ concept }: { concept: Concept }) {
   );
 }
 
-export function QuestionHero({ concept }: { concept: Concept }) {
+export function QuestionHero({ concept, isSpeaking }: { concept: Concept; isSpeaking?: boolean }) {
   return (
-    <h1
-      className="font-display text-[1.7rem] sm:text-3xl font-bold leading-[1.18] tracking-tightest text-balance animate-rise"
-      style={{ animationDelay: "120ms" }}
-    >
-      {concept.question_text}
-    </h1>
+    <div className="animate-rise" style={{ animationDelay: "120ms" }}>
+      {isSpeaking && <AudioBadge label="reading question" />}
+      <h1 className="font-display text-[1.7rem] sm:text-3xl font-bold leading-[1.18] tracking-tightest text-balance">
+        {concept.question_text}
+      </h1>
+    </div>
   );
 }
 
-export function RoastBubble({ roast }: { roast: string }) {
-  return <ExaminerBubble roast={roast} />;
+export function RoastBubble({ roast, isSpeaking }: { roast: string; isSpeaking?: boolean }) {
+  return <ExaminerBubble roast={roast} isSpeaking={isSpeaking} />;
 }
