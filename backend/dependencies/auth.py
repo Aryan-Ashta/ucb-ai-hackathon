@@ -5,6 +5,7 @@ from typing import Annotated
 
 import cachetools
 import httpx
+import redis
 import sentry_sdk
 from fastapi import Header, HTTPException
 
@@ -79,9 +80,13 @@ async def get_current_user(authorization: Annotated[str | None, Header()] = None
     # it MUST be visible. Capture to Sentry at warning level + emit a
     # breadcrumb so the team sees "this user just authed successfully but
     # we couldn't persist the token" instead of failing silently.
+    # P3-B2: narrow the broad except to the realistic failure modes for
+    # store_token (network / connection to Redis; malformed Fernet key).
+    # A bare `except Exception` would swallow programming errors (typos in
+    # the call site) that we'd rather see bubble up.
     try:
         await store_token(user_id, token)
-    except Exception as e:
+    except (redis.RedisError, ValueError) as e:
         sentry_sdk.capture_exception(e)
         sentry_sdk.add_breadcrumb(
             category="auth",

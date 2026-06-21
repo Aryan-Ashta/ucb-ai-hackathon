@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+import redis
 import sentry_sdk
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -180,7 +181,7 @@ def test_store_token_failure_captured_to_sentry(monkeypatch, fake_redis):
         return httpx.Response(200, json={"id": 11, "login": "alice"})
 
     async def fake_store_token_raises(user_id, token):
-        raise ConnectionError("redis down")
+        raise redis.ConnectionError("redis down")
 
     captured = []
     breadcrumbs = []
@@ -206,7 +207,7 @@ def test_store_token_failure_captured_to_sentry(monkeypatch, fake_redis):
     # But the failure IS visible: Sentry sees the exception + a breadcrumb
     # with the user id + error class so the team can debug it.
     assert len(captured) == 1
-    assert isinstance(captured[0], ConnectionError)
+    assert isinstance(captured[0], redis.ConnectionError)
     assert any(
         b["message"] == "token_persistence_failed"
         and b["data"]["user_id"] == "11"
