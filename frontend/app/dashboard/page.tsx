@@ -17,7 +17,6 @@ import { Mascot } from "@/components/Mascot";
 import { STATE_STYLE, deriveState } from "@/lib/concepts";
 
 import { CommitBlock, DueCard, PRBlock, SectionLabel } from "./components";
-import { anySignal } from "@/lib/abort";
 
 /**
  * Mission Control — Direction B from the Banana-Duck Learning Platform design
@@ -88,8 +87,7 @@ export default function Dashboard() {
   const hasAutoSyncedRef = useRef(false);
   const syncingRef = useRef(false);
   // Trace 3 M2/M3: ref for the in-flight sync's AbortController so the
-  // unmount-cleanup useEffect below can cancel it. The user's Banana-Duck
-  // refactor dropped this — restoring it.
+  // unmount-cleanup useEffect below can cancel it.
   const syncCtrlRef = useRef<AbortController | null>(null);
   // P2-D3 (Trace M1): sessionStorage mirror of hasAutoSyncedRef so the
   // flag survives unmount/remount cycles. A ref resets when the component
@@ -114,8 +112,8 @@ export default function Dashboard() {
     }
   }, [status, router]);
 
-  // Trace 3 M4: brief confirmation helper, used by triggerSync below.
-  // Defined BEFORE triggerSync so the callback can reference it.
+  // Trace 3 M4: brief confirmation helper. Clears the prior timer before
+  // setting a new one so rapid syncs don't stack ghost timeouts.
   const showSyncSummary = useCallback((text: string) => {
     setSyncSummary(text);
     if (syncSummaryTimerRef.current) clearTimeout(syncSummaryTimerRef.current);
@@ -123,26 +121,22 @@ export default function Dashboard() {
   }, []);
 
   const triggerSync = useCallback(
-    async (token: string, signal?: AbortSignal) => {
+    async (token: string) => {
       if (syncingRef.current) return;
       syncingRef.current = true;
       setSyncing(true);
       setSyncError(null);
       const inner = new AbortController();
       syncCtrlRef.current = inner;
-      const composed = anySignal([inner.signal, signal ?? null]);
       try {
-        const syncResp = await api.triggerSync(token, composed.signal);
-        // Re-fetch both lists so the UI updates immediately when sync completes.
+        const syncResp = await api.triggerSync(token, inner.signal);
         const [dueData, allData] = await Promise.all([
-          api.listDueConcepts(token, composed.signal),
-          api.listAllConcepts(token, composed.signal),
+          api.listDueConcepts(token, inner.signal),
+          api.listAllConcepts(token, inner.signal),
         ]);
         setPrs(groupByPR(dueData.due));
         setAllPrs(groupByPR(allData.concepts));
         setCommitGroups(groupByCommit(allData.concepts));
-        // Trace 3 M4: brief confirmation. Use the API's summary so the
-        // user sees what was processed (or "you're up to date" if 0).
         const s = syncResp.summary;
         const processed = s.prs_processed + s.commits_processed;
         const skipped = s.prs_skipped + s.commits_skipped;
@@ -165,14 +159,13 @@ export default function Dashboard() {
     [showSyncSummary],
   );
 
-  // Trace 3 M2/M3: abort the in-flight sync on unmount.
+  // Abort the in-flight sync and clear the summary timer on unmount.
   useEffect(() => {
     return () => {
       syncCtrlRef.current?.abort();
     };
   }, []);
 
-  // Trace 3 M4: clean up the syncSummary timer on unmount.
   useEffect(() => {
     return () => {
       if (syncSummaryTimerRef.current) clearTimeout(syncSummaryTimerRef.current);
