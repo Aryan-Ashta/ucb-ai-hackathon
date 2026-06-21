@@ -309,7 +309,7 @@ export default function Dashboard() {
       {/* ── header ─────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-10 bg-canvas/90 backdrop-blur border-b border-line">
         <div className="mx-auto max-w-5xl flex items-center gap-3 border-b border-line px-7 py-4">
-          <span className="font-display text-lg font-extrabold tracking-tight">VibeSchool</span>
+          <span className="font-display text-lg font-extrabold tracking-tight">bananaduck</span>
           <div className="flex-1" />
           {session.user?.image && (
             // eslint-disable-next-line @next/next/no-img-element

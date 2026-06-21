@@ -30,7 +30,7 @@ const geistMono = localFont({
 
 export function generateMetadata(): Metadata {
   return {
-    title: "VibeSchool — Learn from your PRs",
+    title: "bananaduck — Learn from your PRs",
     description:
       "Spaced-repetition developer learning that turns your merged GitHub PRs into voice quizzes.",
     other: {

@@ -51,7 +51,7 @@ describe("apiErrorToMessage", () => {
   });
   it("maps 5xx to a generic retry prompt", () => {
     expect(apiErrorToMessage(new ApiError(503, "{}", "x"), "ctx")).toBe(
-      "VibeSchool is taking a quick break. Try again in a moment.",
+      "bananaduck is taking a quick break. Try again in a moment.",
     );
   });
   it("maps unknown 4xx to a status-coded message", () => {
@@ -61,7 +61,7 @@ describe("apiErrorToMessage", () => {
   });
   it("maps TypeError to a backend-down message", () => {
     expect(apiErrorToMessage(new TypeError("fetch failed"), "ctx")).toBe(
-      "Can't reach VibeSchool — is the backend running on localhost:8000?",
+      "Can't reach bananaduck — is the backend running on localhost:8000?",
     );
   });
   it("falls back to a generic message for unknown errors", () => {

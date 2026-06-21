@@ -35,14 +35,14 @@ export function apiErrorToMessage(err: unknown, context: string): string {
     if (err.status === 415) return "Unsupported format. Try a different file type.";
     if (err.status === 429) return "Slow down a moment — too many requests.";
     if (err.status >= 500 && err.status <= 599) {
-      return "VibeSchool is taking a quick break. Try again in a moment.";
+      return "bananaduck is taking a quick break. Try again in a moment.";
     }
     return `Request failed (${err.status}).`;
   }
 
   // Fetch network failure (backend down, CORS, offline) surfaces as TypeError.
   if (err instanceof TypeError) {
-    return "Can't reach VibeSchool — is the backend running on localhost:8000?";
+    return "Can't reach bananaduck — is the backend running on localhost:8000?";
   }
   return "Something went wrong. Try again.";
 }

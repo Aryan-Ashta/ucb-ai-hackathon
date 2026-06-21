@@ -39,7 +39,7 @@ def test_main_imports_cleanly():
     fail the entire suite."""
     import backend.main as main_mod  # noqa: F401
     assert main_mod.app is not None
-    assert main_mod.app.title == "VibeSchool Backend"
+    assert main_mod.app.title == "bananaduck Backend"
 
 
 def _reset_root_logger():

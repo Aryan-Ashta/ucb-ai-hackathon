@@ -17,7 +17,7 @@ client = AsyncOpenAI(
 )
 MODEL = config.TOKENROUTER_MODEL
 
-SYSTEM_PROMPT = """You are VibeSchool, a savage but educational code reviewer.
+SYSTEM_PROMPT = """You are bananaduck, a savage but educational code reviewer.
 Given a GitHub diff (either a PR or a single commit), you:
 1. Identify 1-5 CS concepts or patterns that appear in the diff
 2. Write a roast of the code for each concept — be specific, reference actual code details, be funny but educational

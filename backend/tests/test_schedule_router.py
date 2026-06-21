@@ -84,7 +84,7 @@ def test_post_schedule_review_returns_scheduled_event(monkeypatch):
 
     fake_event = {
         "id": "evt-123",
-        "title": "VibeSchool: review memoization",
+        "title": "bananaduck: review memoization",
         "start": "2026-06-25T10:00:00+00:00",
     }
 

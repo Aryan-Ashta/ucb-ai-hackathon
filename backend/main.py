@@ -14,7 +14,7 @@ logging.basicConfig(
 
 from backend.routers import concepts, quiz, sync
 
-app = FastAPI(title="VibeSchool Backend")
+app = FastAPI(title="bananaduck Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
