@@ -9,6 +9,12 @@ import { api, ApiError, USING_MOCK } from "@/lib/api";
 
 type PR = DashboardPR;
 
+/** A rolled-up commit group: same repo, all commits in it. */
+interface CommitGroup {
+  repo: string;
+  concepts: Concept[];
+}
+
 // --- Time helpers ---
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -47,11 +53,13 @@ function masteryPct(interval: number): number {
   return Math.min(Math.round((interval / 30) * 100), 100);
 }
 
-/** Group a flat concept list into DashboardPRs by pr_number. */
+/** Group a flat concept list into PRs by pr_number (PR-sourced only).
+ *  Commit-sourced concepts are excluded here — groupByCommit handles them. */
 function groupByPR(concepts: Concept[]): PR[] {
   const order: number[] = [];
   const byPr: Record<number, Concept[]> = {};
   for (const c of concepts) {
+    if (c.source_type === "commit") continue; // commits render in their own section
     const pr = c.pr_number ?? 0;
     if (!byPr[pr]) { byPr[pr] = []; order.push(pr); }
     byPr[pr].push(c);
@@ -66,6 +74,26 @@ function groupByPR(concepts: Concept[]): PR[] {
       concepts: cs,
     };
   });
+}
+
+/** Group commit-sourced concepts by repo (commits don't have a natural
+ *  numeric grouping key the way PRs do, so we roll them up by repo).
+ *  Sorted by most-recently-due concept first within each group. */
+function groupByCommit(concepts: Concept[]): CommitGroup[] {
+  const byRepo: Record<string, Concept[]> = {};
+  for (const c of concepts) {
+    if (c.source_type !== "commit") continue;
+    const repo = c.repo ?? "(unknown repo)";
+    if (!byRepo[repo]) byRepo[repo] = [];
+    byRepo[repo].push(c);
+  }
+  // Stable order: most-recent commit first within each repo (the dashboard
+  // sorts by next_review anyway, but we keep a deterministic order here so
+  // re-renders don't shuffle).
+  for (const repo of Object.keys(byRepo)) {
+    byRepo[repo].sort((a, b) => a.commit_sha?.localeCompare(b.commit_sha ?? "") ?? 0);
+  }
+  return Object.entries(byRepo).map(([repo, concepts]) => ({ repo, concepts }));
 }
 
 /**
@@ -100,6 +128,11 @@ function friendlyFetchError(err: unknown): string {
 function DueCard({ concept }: { concept: Concept & { prTitle: string } }) {
   const status = getDueStatus(concept.next_review);
   const isOverdue = status === "overdue";
+  const isCommit = concept.source_type === "commit";
+  const shortSha = concept.commit_sha ? concept.commit_sha.slice(0, 7) : "";
+  const provenance = isCommit
+    ? `${concept.repo}@${shortSha}`
+    : `${concept.repo}#${concept.pr_number}`;
 
   return (
     <a
@@ -113,7 +146,7 @@ function DueCard({ concept }: { concept: Concept & { prTitle: string } }) {
           {concept.concept}
         </p>
         <p className="font-mono text-[11px] text-ink-faint truncate mt-0.5">
-          {concept.repo}#{concept.pr_number} · {concept.prTitle}
+          {provenance} · {concept.prTitle}
         </p>
       </div>
       <div className="flex items-center gap-3 shrink-0">
@@ -187,6 +220,76 @@ function PRBlock({ pr }: { pr: PR }) {
   );
 }
 
+/** Commit block: leaner than PRBlock — no merged-at date, just commit
+ *  SHAs as the unit of provenance. Multiple commits from the same repo
+ *  roll up into one block so a user with 100 commits doesn't see 100
+ *  separate cards. */
+function CommitBlock({ group }: { group: CommitGroup }) {
+  return (
+    <div className="rounded-2xl bg-surface-1 border border-line overflow-hidden">
+      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-line">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[11px] text-ink-faint">
+            {group.repo}
+            <span className="text-ink-dim"> · recent commits</span>
+          </p>
+          <h2 className="font-semibold text-ink text-sm truncate">
+            {group.concepts.length} commit{group.concepts.length === 1 ? "" : "s"} ingested
+          </h2>
+        </div>
+        <span className="shrink-0 font-mono text-[11px] bg-surface-2 text-ink-faint px-2 py-0.5 rounded border border-line">
+          {group.concepts.length}c
+        </span>
+      </div>
+      <div className="p-3 flex flex-col gap-2">
+        {group.concepts.map((c) => (
+          <CommitRow key={c.id} concept={c} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Compact concept row inside a CommitBlock — shows the short SHA prominently
+ *  since there's no PR number to anchor the row. */
+function CommitRow({ concept }: { concept: Concept }) {
+  const status = getDueStatus(concept.next_review);
+  const pct = masteryPct(concept.interval);
+  const shortSha = concept.commit_sha ? concept.commit_sha.slice(0, 7) : "";
+
+  return (
+    <a
+      href={`/quiz/${concept.id}`}
+      className="group flex items-center gap-3 rounded-lg bg-surface-2 hover:bg-line border border-line px-3 py-2.5 transition-colors"
+    >
+      <span className="font-mono text-[11px] text-marigold shrink-0 tabular-nums" title={concept.commit_sha}>
+        {shortSha}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-ink group-hover:text-marigold transition-colors truncate">
+          {concept.concept}
+        </p>
+        <div className="flex items-center gap-2 mt-1.5">
+          <div className="h-[3px] w-20 rounded-full bg-canvas overflow-hidden">
+            <div
+              className="h-full rounded-full bg-marigold transition-all duration-700"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="font-mono text-[10px] text-ink-faint tabular-nums">{pct}%</span>
+        </div>
+      </div>
+      <span
+        className={`font-mono text-[11px] shrink-0 tabular-nums ${
+          status === "overdue" ? "text-coral" : status === "today" ? "text-marigold" : "text-ink-faint"
+        }`}
+      >
+        {formatDue(concept.next_review)}
+      </span>
+    </a>
+  );
+}
+
 /** Section divider: mono eyebrow + hairline rule. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -204,7 +307,12 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  // due-only list — drives the "due now" queue
   const [prs, setPrs] = useState<PR[]>(USING_MOCK ? getMockPRs() : []);
+  // all synced concepts — drives the concept bank (includes future-scheduled)
+  const [allPrs, setAllPrs] = useState<PR[]>(USING_MOCK ? getMockPRs() : []);
+  // commit-sourced concepts, rolled up by repo (separate section in concept bank)
+  const [commitGroups, setCommitGroups] = useState<CommitGroup[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(!USING_MOCK);
   const [syncing, setSyncing] = useState(false);
@@ -236,9 +344,14 @@ export default function Dashboard() {
     setSyncError(null);
     try {
       await api.triggerSync(token);
-      // Re-fetch due concepts so the UI updates immediately when sync completes.
-      const data = await api.listDueConcepts(token);
-      setPrs(groupByPR(data.due));
+      // Re-fetch both lists so the UI updates immediately when sync completes.
+      const [dueData, allData] = await Promise.all([
+        api.listDueConcepts(token),
+        api.listAllConcepts(token),
+      ]);
+      setPrs(groupByPR(dueData.due));
+      setAllPrs(groupByPR(allData.concepts));
+      setCommitGroups(groupByCommit(allData.concepts));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setSyncError(msg);
@@ -250,8 +363,8 @@ export default function Dashboard() {
   }, []);
 
   // Live backend: fetch due concepts and group into PRs. Auto-trigger a sync
-  // when the user has nothing due (covers first-run AND caught-up cases —
-  // re-sync is idempotent so the cost is bounded).
+  // when the user has nothing due (covers first-run AND caught-up cases — re-sync
+  // is idempotent so the cost is bounded).
   useEffect(() => {
     if (USING_MOCK || status !== "authenticated" || !session?.accessToken) return;
     const ctrl = new AbortController();
@@ -259,11 +372,15 @@ export default function Dashboard() {
     setFetching(true);
     setFetchError(null);
 
-    api
-      .listDueConcepts(token, ctrl.signal)
-      .then((data) => {
-        setPrs(groupByPR(data.due));
-        if (data.due.length === 0 && !hasAutoSyncedRef.current) {
+    Promise.all([
+      api.listDueConcepts(token, ctrl.signal),
+      api.listAllConcepts(token, ctrl.signal),
+    ])
+      .then(([dueData, allData]) => {
+        setPrs(groupByPR(dueData.due));
+        setAllPrs(groupByPR(allData.concepts));
+        setCommitGroups(groupByCommit(allData.concepts));
+        if (dueData.due.length === 0 && !hasAutoSyncedRef.current) {
           hasAutoSyncedRef.current = true;
           void triggerSync(token);
         }
@@ -293,7 +410,7 @@ export default function Dashboard() {
     .sort((a, b) => new Date(a.next_review).getTime() - new Date(b.next_review).getTime());
 
   const overdueCount = dueItems.filter((c) => getDueStatus(c.next_review) === "overdue").length;
-  const totalConcepts = prs.reduce((n, pr) => n + pr.concepts.length, 0);
+  const totalConcepts = allPrs.reduce((n, pr) => n + pr.concepts.length, 0);
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -361,9 +478,9 @@ export default function Dashboard() {
                 {totalConcepts} concepts tracked
               </span>
             )}
-            {prs.length > 0 && (
+            {allPrs.length > 0 && (
               <span className="font-mono text-xs bg-surface-2 border border-line text-ink-dim px-2.5 py-1 rounded-lg">
-                {prs.length} PRs
+                {allPrs.length} PRs
               </span>
             )}
           </div>
@@ -402,13 +519,29 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* All concepts, grouped by PR */}
-        {prs.length > 0 && (
+        {/* All concepts, grouped by source (PRs + commits) */}
+        {allPrs.length > 0 && (
           <section>
             <SectionLabel>concept bank · {totalConcepts}</SectionLabel>
             <div className="flex flex-col gap-4">
-              {prs.map((pr) => (
+              {allPrs.map((pr) => (
                 <PRBlock key={pr.pr_number} pr={pr} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Commit-sourced concepts, rolled up by repo. Renders below the PR
+            bank so solo-repo users still see something here without
+            needing to scroll through merged-PR-only repos. */}
+        {commitGroups.length > 0 && (
+          <section>
+            <SectionLabel>
+              recent commits · {commitGroups.reduce((n, g) => n + g.concepts.length, 0)}
+            </SectionLabel>
+            <div className="flex flex-col gap-4">
+              {commitGroups.map((g) => (
+                <CommitBlock key={g.repo} group={g} />
               ))}
             </div>
           </section>

@@ -1,8 +1,9 @@
 // Shared types — shaped to the FastAPI backend contracts in backend/routers.
 
-/** A single CS concept extracted from a PR diff. Mirrors QuizConcept + SM-2 state. */
+/** A single CS concept extracted from a PR diff or a single commit.
+ *  Mirrors QuizConcept + SM-2 state. */
 export interface Concept {
-  id: string; // concept_id: "{user_id}:{pr_number}:{slug}"
+  id: string; // concept_id: "{user_id}:{pr_number}:{slug}" or "{user_id}:c-{sha_short}:{slug}"
   concept: string; // human-readable name, e.g. "Memoization"
   roast_text: string; // savage-but-educational roast of the code
   question_text: string; // the quiz question
@@ -11,10 +12,12 @@ export interface Concept {
   interval: number; // SM-2 interval, days
   ease_factor: number; // SM-2 ease factor
   repetitions: number; // successful reviews so far
-  // Provenance (for the eyebrow / "from PR #42" chip).
-  pr_number?: number;
+  // Provenance (for the eyebrow / "from PR #42" or "commit abc1234" chip).
+  pr_number?: number; // 0 for commit-sourced concepts
   repo?: string;
   pr_title?: string;
+  source_type?: "pr" | "commit"; // undefined / "pr" for legacy data
+  commit_sha?: string; // full SHA when source_type="commit"
 }
 
 /** Response from POST /api/transcribe. */
