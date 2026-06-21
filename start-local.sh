@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the VibeSchool backend and frontend together, locally.
+# Start the bananaduck backend and frontend together, locally.
 #
 # Usage: ./start-local.sh
 #

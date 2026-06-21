@@ -24,7 +24,7 @@ async def schedule_review_block(
     review_dt = datetime.fromtimestamp(next_review_timestamp, tz=timezone.utc)
 
     event_payload = {
-        "title": f"VibeSchool: review {concept_name}",
+        "title": f"bananaduck: review {concept_name}",
         "description": (
             f"Review concept: {concept_name}\n"
             f"Quiz link: https://vibeschool.app/quiz/{concept_id}"

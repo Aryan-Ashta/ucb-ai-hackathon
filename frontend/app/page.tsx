@@ -24,7 +24,7 @@ export default function Home() {
       <nav className="flex items-center justify-between px-8 py-4 border-b border-yellow-100">
         <div className="flex items-center gap-2">
           <span className="text-3xl">🦆</span>
-          <span className="font-bold text-xl text-gray-900">VibeSchool</span>
+          <span className="font-bold text-xl text-gray-900">bananaduck</span>
         </div>
         <div>
           {status === "loading" ? null : session ? (
@@ -63,7 +63,7 @@ export default function Home() {
           <span className="text-yellow-500">Start learning them.</span>
         </h1>
         <p className="text-lg text-gray-600 max-w-xl mb-10">
-          VibeSchool turns your merged GitHub pull requests into spaced-repetition
+          bananaduck turns your merged GitHub pull requests into spaced-repetition
           voice quizzes — complete with a savage roast of your own code, delivered
           by a banana duck.
         </p>

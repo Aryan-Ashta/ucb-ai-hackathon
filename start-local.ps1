@@ -1,6 +1,6 @@
 # start-local.ps1 — Windows-native equivalent of start-local.sh
 #
-# Starts the VibeSchool backend and frontend together, locally.
+# Starts the bananaduck backend and frontend together, locally.
 # Each process runs in its own labelled console window.
 #
 # Usage (from PowerShell, in the repo root):
@@ -10,8 +10,8 @@
 #
 # What it does:
 #   1. Verifies prerequisites (venv, bun, frontend deps, both .env files)
-#   2. Opens a window titled "VibeSchool - backend" running uvicorn :8000
-#   3. Opens a window titled "VibeSchool - frontend" running `bun dev` :3000
+#   2. Opens a window titled "bananaduck - backend" running uvicorn :8000
+#   3. Opens a window titled "bananaduck - frontend" running `bun dev` :3000
 #   4. Waits for Enter, then kills both child process trees and closes every window
 #      (including this one, when launched by double-click)
 #
@@ -98,17 +98,17 @@ function Close-HostWindow {
 # /c (not /k): the cmd window closes as soon as the dev server exits, so there's
 # no lingering "press any key to close" prompt left behind.
 Write-Host '==> Starting backend on http://localhost:8000' -ForegroundColor Cyan
-$backendCmd = "title VibeSchool - backend && `"$UVICORN`" backend.main:app --host 0.0.0.0 --port 8000"
+$backendCmd = "title bananaduck - backend && `"$UVICORN`" backend.main:app --host 0.0.0.0 --port 8000"
 $backendProc = Start-Process cmd -ArgumentList '/c', $backendCmd -PassThru -WindowStyle Normal
 
 Write-Host '==> Starting frontend on http://localhost:3000' -ForegroundColor Cyan
-$frontendCmd = "title VibeSchool - frontend && cd /d `"$REPO\frontend`" && bun dev"
+$frontendCmd = "title bananaduck - frontend && cd /d `"$REPO\frontend`" && bun dev"
 $frontendProc = Start-Process cmd -ArgumentList '/c', $frontendCmd -PassThru -WindowStyle Normal
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  Backend:  http://localhost:8000  (window: "VibeSchool - backend")'
-Write-Host '  Frontend: http://localhost:3000  (window: "VibeSchool - frontend")'
+Write-Host '  Backend:  http://localhost:8000  (window: "bananaduck - backend")'
+Write-Host '  Frontend: http://localhost:3000  (window: "bananaduck - frontend")'
 Write-Host ''
 Write-Host '  Open the frontend URL in your browser.'
 Write-Host '  Press Enter here to stop both, or close the windows yourself.'

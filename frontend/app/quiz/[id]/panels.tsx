@@ -120,7 +120,7 @@ export function RecordingPanel({
           </p>
           <p className="text-ink-dim text-sm mb-6">
             {rec.state === "denied"
-              ? "VibeSchool needs your mic to hear you. Enable it in your browser, or type your answer instead."
+              ? "bananaduck needs your mic to hear you. Enable it in your browser, or type your answer instead."
               : "We couldn't reach a microphone. Type your answer instead."}
           </p>
           <button

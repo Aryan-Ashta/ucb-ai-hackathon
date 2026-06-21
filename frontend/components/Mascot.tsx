@@ -17,7 +17,7 @@ export interface MascotProps {
 }
 
 /**
- * The VibeSchool banana-duck. Uses the real illustration (public/mascot.svg) as
+ * The bananaduck banana-duck. Uses the real illustration (public/mascot.svg) as
  * the base image and rigs animated expression overlays on top, in the artwork's
  * native 1254×1254 coordinate space. Expression is driven by `mood`:
  *   idle     — gentle breathing + occasional blink
