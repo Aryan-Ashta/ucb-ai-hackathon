@@ -73,3 +73,14 @@ def is_pr_source(concept_id: str) -> bool:
     """Fast-path check used by the dashboard groupByPR filter."""
     parts = concept_id.split(":")
     return len(parts) >= 3 and parts[1].isdigit()
+
+
+def extract_user_id(concept_id: str) -> str:
+    """Extract the user_id segment from any concept_id shape.
+
+    Both PR ("{u}:{n}:{slug}") and commit ("{u}:c-{sha}:{slug}") ids
+    start with the user_id. Returns "" for malformed inputs so callers
+    can filter them out rather than crash.
+    """
+    parts = concept_id.split(":")
+    return parts[0] if parts else ""

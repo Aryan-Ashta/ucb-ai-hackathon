@@ -14,9 +14,8 @@ from backend.config import (
     REDIS_USERNAME,
 )
 from backend.models import QuizConcept
-from backend.services.concept_ids import parse_concept_id
+from backend.services.concept_ids import extract_user_id, parse_concept_id
 from backend.services.sm2 import sm2_next
-
 REDIS_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days minimum
 
 _redis: aioredis.Redis | None = None
@@ -112,6 +111,48 @@ async def cache_quiz_content(user_id: str, concept: QuizConcept) -> None:
         message=f"Cached quiz content for concept: {concept.concept}",
         level="info",
     )
+
+    # Fire-and-forget: index the concept in the vector store so future
+    # RAG queries can find it. Failure here never blocks ingestion.
+    _schedule_vector_index(concept)
+
+
+def _schedule_vector_index(concept) -> None:
+    """Spawn a background task to embed + index the concept.
+
+    We use asyncio.create_task so cache_quiz_content returns immediately
+    and the embedding HTTP call (Voyage) doesn't sit in the critical
+    path. The task captures all exceptions internally — they can't crash
+    the parent event loop.
+    """
+    import asyncio
+
+    from backend.services import vector_store
+
+    async def _run():
+        try:
+            parts = parse_concept_id(concept.concept_id)
+            await vector_store.index_concept(
+                user_id=extract_user_id(concept.concept_id),
+                concept_id=concept.concept_id,
+                concept_name=concept.concept,
+                roast_text=concept.roast_text,
+                question_text=concept.question_text,
+                source_type=parts.source_type,
+                pr_number_or_sha=str(parts.pr_number) if parts.source_type == "pr" else parts.commit_sha,
+                repo=concept.repo or "",
+            )
+        except Exception as e:
+            # vector_store already captures to Sentry; this is a final
+            # safety net for any error in the schedule/dispatch path.
+            sentry_sdk.capture_exception(e)
+
+    try:
+        asyncio.create_task(_run())
+    except RuntimeError:
+        # No event loop running (e.g. test fixtures outside async context).
+        # Indexing can be skipped — the cache write itself succeeded.
+        pass
 
 
 def _flatten_concept(quiz: dict, state: dict, concept_id: str) -> dict:

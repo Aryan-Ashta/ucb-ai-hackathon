@@ -9,6 +9,7 @@ the same module so they cannot drift.
 from backend.services.concept_ids import (
     ConceptIdParts,
     build_concept_id_seed,
+    extract_user_id,
     is_commit_source,
     is_pr_source,
     parse_concept_id,
@@ -62,6 +63,22 @@ class TestFastPaths:
         assert is_pr_source("u:42:slug") is True
         assert is_pr_source("u:c-abc1234:slug") is False
         assert is_pr_source("garbage") is False
+
+
+class TestExtractUserId:
+    def test_pr_shape(self):
+        assert extract_user_id("u_1:42:caching") == "u_1"
+
+    def test_commit_shape(self):
+        assert extract_user_id("u_1:c-abc1234:caching") == "u_1"
+
+    def test_handles_dashes_in_user_id(self):
+        # GitHub user_ids can include dashes (e.g. "user-123").
+        assert extract_user_id("user-123:7:slug") == "user-123"
+
+    def test_malformed_returns_empty(self):
+        assert extract_user_id("") == ""
+        assert extract_user_id("no-colon-here") == "no-colon-here"  # single segment is the user_id
 
 
 class TestRoundTrip:
