@@ -210,3 +210,142 @@ async def test_sync_user_prs_passes_no_since_to_list_merged_prs(monkeypatch, fak
         f"made {state['n']} requests"
     )
     assert len(result) == github_oauth.MAX_PAGES
+
+
+# --- sync_user_history: commit ingestion ---------------------------------------
+
+@pytest.mark.asyncio
+async def test_sync_user_history_ingests_commits_in_addition_to_prs(monkeypatch, fake_redis):
+    """The new dual-walk: PRs AND commits per repo. Both go through
+    extract_concepts_and_cache; both are recorded for idempotency."""
+    async def _fake_list_repos(token):
+        return [{"full_name": "solo/myrepo"}]
+
+    monkeypatch.setattr(sync_mod, "list_user_repos", _fake_list_repos)
+
+    # No merged PRs in this solo repo.
+    async def fake_list_merged_prs(token, repo, *, since_iso):
+        return []
+
+    monkeypatch.setattr(sync_mod, "list_merged_prs", fake_list_merged_prs)
+
+    # But plenty of commits (the solo-repo case this feature was built for).
+    async def fake_list_commits(token, repo, *, max_commits=100):
+        return [
+            {"sha": "abc1234567890aaa", "commit": {"author": {"date": "2026-06-20T00:00:00Z"}, "message": "refactor: dedup the auth helper"}},
+            {"sha": "def4567890abcdef", "commit": {"author": {"date": "2026-06-21T00:00:00Z"}, "message": "feat: add cache eviction"}},
+        ]
+
+    monkeypatch.setattr(sync_mod, "list_commits", fake_list_commits)
+
+    async def fake_fetch_commit_diff(token, repo, sha):
+        return "diff --git a/x.py b/x.py\n+def new():\n+    return 42\n"
+
+    monkeypatch.setattr(sync_mod, "fetch_commit_diff", fake_fetch_commit_diff)
+
+    extract_calls: list[tuple[str, str | int]] = []
+
+    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title=""):
+        extract_calls.append((user_id, source_id))
+        return []
+
+    monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
+
+    summary = await sync_mod.sync_user_history("ghp_test", "u-solo")
+
+    assert summary["status"] == "ok"
+    assert summary["prs_seen"] == 0
+    assert summary["prs_processed"] == 0
+    assert summary["commits_seen"] == 2
+    assert summary["commits_processed"] == 2
+    assert summary["commits_skipped"] == 0
+    # Source IDs passed to extract_concepts_and_cache must be the commit SHAs
+    # (strings), not PR numbers — verifies the int|str union discriminator.
+    assert extract_calls == [
+        ("u-solo", "abc1234567890aaa"),
+        ("u-solo", "def4567890abcdef"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sync_user_history_skips_already_processed_commits(monkeypatch, fake_redis):
+    """A commit whose short SHA is already in user:{u}:prs must be skipped."""
+    from backend.services.redis_client import mark_commit_processed
+
+    # Seed: one commit already processed in a previous sync.
+    await mark_commit_processed(
+        "u1", repo="solo/repo",
+        commit_sha="abc1234567890aaa", committed_at="2026-06-20T00:00:00Z",
+    )
+
+    async def _fake_list_repos(token):
+        return [{"full_name": "solo/repo"}]
+
+    monkeypatch.setattr(sync_mod, "list_user_repos", _fake_list_repos)
+    monkeypatch.setattr(sync_mod, "list_merged_prs", lambda *a, **kw: [])
+
+    async def fake_list_commits(token, repo, *, max_commits=100):
+        return [
+            {"sha": "abc1234567890aaa", "commit": {"author": {"date": "2026-06-20T00:00:00Z"}, "message": "already done"}},
+            {"sha": "fresh00000000ff", "commit": {"author": {"date": "2026-06-21T00:00:00Z"}, "message": "new work"}},
+        ]
+
+    monkeypatch.setattr(sync_mod, "list_commits", fake_list_commits)
+
+    # Must be async — sync.py awaits the result.
+    async def fake_fetch_commit_diff(token, repo, sha):
+        return "diff --git a/x.py b/x.py\n+def f():\n+    return 42\n"
+
+    monkeypatch.setattr(sync_mod, "fetch_commit_diff", fake_fetch_commit_diff)
+
+    extract_calls: list[str] = []
+
+    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title=""):
+        extract_calls.append(source_id)
+        return []
+
+    monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
+
+    summary = await sync_mod.sync_user_history("ghp_test", "u1")
+
+    assert summary["commits_seen"] == 2  # both are "seen"
+    assert summary["commits_skipped"] == 1  # one is already processed
+    assert summary["commits_processed"] == 1  # only the new one runs through
+    assert extract_calls == ["fresh00000000ff"]
+
+
+@pytest.mark.asyncio
+async def test_sync_user_history_max_commits_per_repo_caps_ingestion(monkeypatch, fake_redis):
+    """The per-repo cap must actually be respected by _ingest_commit."""
+    async def _fake_list_repos(token):
+        return [{"full_name": "active/dev"}]
+
+    monkeypatch.setattr(sync_mod, "list_user_repos", _fake_list_repos)
+    monkeypatch.setattr(sync_mod, "list_merged_prs", lambda *a, **kw: [])
+
+    # 50 commits in the repo; we ask for only 5.
+    async def fake_list_commits(token, repo, *, max_commits=100):
+        return [
+            {"sha": f"sha{i:040d}", "commit": {"author": {"date": ""}, "message": ""}}
+            for i in range(50)
+        ]
+
+    monkeypatch.setattr(sync_mod, "list_commits", fake_list_commits)
+
+    # Must be async.
+    async def fake_fetch_commit_diff(token, repo, sha):
+        return "diff --git a/x.py b/x.py\n+def f():\n+    return 42\n"
+
+    monkeypatch.setattr(sync_mod, "fetch_commit_diff", fake_fetch_commit_diff)
+
+    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title=""):
+        return []
+
+    monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
+
+    summary = await sync_mod.sync_user_history(
+        "ghp_test", "u-active", max_commits_per_repo=5
+    )
+
+    # _ingest_commit hard-caps at the requested limit.
+    assert summary["commits_processed"] == 5

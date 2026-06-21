@@ -220,6 +220,26 @@ async def test_mixed_processed_prs_and_commits():
     assert by_type["commit"][0]["key"] == "deadbee"  # first 7 chars of "deadbeef0001"
 
 
+# --- parse_concept_id: source_type discriminator ---------------------------
+
+def test_parse_concept_id_pr():
+    from backend.services.redis_client import parse_concept_id
+    assert parse_concept_id("42:101:caching") == (101, "", "pr")
+
+
+def test_parse_concept_id_commit():
+    from backend.services.redis_client import parse_concept_id
+    assert parse_concept_id("42:c-abc1234:caching") == (0, "abc1234", "commit")
+
+
+def test_parse_concept_id_legacy_unprefixed():
+    """A concept_id with neither a numeric nor 'c-' middle segment falls
+    back to (0, '', 'pr') so a corrupt or legacy key doesn't crash the
+    dashboard. This guards against future schema drift."""
+    from backend.services.redis_client import parse_concept_id
+    assert parse_concept_id("42:weird-shape:caching") == (0, "", "pr")
+
+
 async def test_get_last_sync_roundtrip():
     from backend.services.redis_client import get_last_sync, set_last_sync
     assert await get_last_sync("u1") is None

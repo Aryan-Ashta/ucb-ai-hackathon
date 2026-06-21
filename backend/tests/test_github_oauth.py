@@ -100,6 +100,92 @@ def test_fetch_pr_diff_returns_raw_text(monkeypatch):
     assert text == diff_text
 
 
+# --- list_commits --------------------------------------------------------------
+
+def test_list_commits_paginates_and_caps_at_max(monkeypatch):
+    """list_commits should stop paginating once `max_commits` is reached.
+
+    Real GitHub returns up to 100 commits per page. We feed 3 pages of 100
+    each (300 total) with max_commits=150 — the loop must stop after the
+    2nd page (which gives 200 commits, hitting the cap mid-page).
+    """
+    def handler(req: httpx.Request, **_) -> list:
+        if handler.calls == 0:
+            handler.calls += 1
+            return [{"sha": f"sha_a_{i:04d}"} for i in range(100)]
+        if handler.calls == 1:
+            handler.calls += 1
+            return [{"sha": f"sha_b_{i:04d}"} for i in range(100)]
+        handler.calls += 1
+        return []  # should never be reached — list_commits stops at max_commits
+    handler.calls = 0
+
+    _patch_request(monkeypatch, handler)
+    commits = _run(github_oauth.list_commits("ghp_test", "octo/r", max_commits=150))
+    assert len(commits) == 150  # exactly 100 + 50 from the second page
+    assert handler.calls == 2  # never hit the third (empty) page
+
+
+def test_list_commits_returns_short_pages_unchanged(monkeypatch):
+    """If GitHub returns a page with < 100 entries, that's the last page."""
+    def handler(req: httpx.Request, **_) -> list:
+        if handler.calls == 0:
+            handler.calls += 1
+            return [{"sha": f"sha_{i:04d}"} for i in range(7)]
+        handler.calls += 1
+        return []  # should never be reached
+    handler.calls = 0
+
+    _patch_request(monkeypatch, handler)
+    commits = _run(github_oauth.list_commits("ghp_test", "octo/r"))
+    assert len(commits) == 7
+    assert handler.calls == 1
+
+
+def test_list_commits_respects_max_pages_safety_cap(monkeypatch):
+    """The MAX_PAGES=50 cap must still hold — a runaway pagination loop
+    would blow Claude quota. With max_commits=10000 we expect the loop
+    to terminate at MAX_PAGES even if every page is full.
+    """
+    # Just verify the function returns (doesn't hang) with a huge cap;
+    # we don't need to assert exact count, just that it terminates.
+    def handler(req: httpx.Request, **_) -> list:
+        return [{"sha": f"sha_{i:04d}"} for i in range(100)]
+
+    _patch_request(monkeypatch, handler)
+    commits = _run(github_oauth.list_commits("ghp_test", "octo/r", max_commits=10_000))
+    # MAX_PAGES is 50; at 100/page that's 5000 max.
+    assert 0 < len(commits) <= github_oauth.MAX_PAGES * 100
+
+
+# --- fetch_commit_diff ---------------------------------------------------------
+
+def test_fetch_commit_diff_returns_raw_text(monkeypatch):
+    """Commit diffs are fetched with the same v3.diff Accept header as PRs."""
+    diff_text = "diff --git a/x.py b/x.py\n+def add(a, b):\n+    return a+b\n"
+
+    def handler(req: httpx.Request, **kw) -> str:
+        assert "application/vnd.github.v3.diff" in (kw.get("accept") or "")
+        return diff_text
+
+    _patch_request(monkeypatch, handler)
+    text = _run(github_oauth.fetch_commit_diff("ghp_test", "octo/r", "abc1234567890def"))
+    assert text == diff_text
+
+
+def test_fetch_commit_diff_url_includes_full_sha(monkeypatch):
+    captured_urls: list[str] = []
+
+    def handler(req: httpx.Request, **_) -> str:
+        captured_urls.append(str(req.url))
+        return ""
+
+    _patch_request(monkeypatch, handler)
+    _run(github_oauth.fetch_commit_diff("ghp_test", "octo/r", "abc1234567890def"))
+    assert len(captured_urls) == 1
+    assert captured_urls[0].endswith("/repos/octo/r/commits/abc1234567890def")
+
+
 def _run(coro):
     """Run an async coroutine in a fresh loop. Used in sync tests."""
     import asyncio
