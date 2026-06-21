@@ -33,7 +33,7 @@ DEEPGRAM_API_KEY = _require("DEEPGRAM_API_KEY")
 TOKENROUTER_BASE_URL = os.environ.get(
     "TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1"
 )
-TOKENROUTER_MODEL = os.environ.get("TOKENROUTER_MODEL", "minimax-m3")
+TOKENROUTER_MODEL = os.environ.get("TOKENROUTER_MODEL", "MiniMax-M3")
 
 # ── Redis Cloud ───────────────────────────────────────────────────────────
 # Redis Cloud → your database → "Connect" gives you four things:
