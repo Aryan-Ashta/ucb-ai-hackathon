@@ -221,23 +221,27 @@ async def test_mixed_processed_prs_and_commits():
 
 
 # --- parse_concept_id: source_type discriminator ---------------------------
+# After the concept_ids.py extraction (Tier 2.6), parse_concept_id lives in
+# backend.services.concept_ids and returns a ConceptIdParts dataclass instead
+# of a raw tuple. The dedicated contract tests are in test_concept_ids.py;
+# the three cases here stay as a smoke check that the import path works.
 
 def test_parse_concept_id_pr():
-    from backend.services.redis_client import parse_concept_id
-    assert parse_concept_id("42:101:caching") == (101, "", "pr")
+    from backend.services.concept_ids import ConceptIdParts, parse_concept_id
+    assert parse_concept_id("42:101:caching") == ConceptIdParts(101, "", "pr")
 
 
 def test_parse_concept_id_commit():
-    from backend.services.redis_client import parse_concept_id
-    assert parse_concept_id("42:c-abc1234:caching") == (0, "abc1234", "commit")
+    from backend.services.concept_ids import ConceptIdParts, parse_concept_id
+    assert parse_concept_id("42:c-abc1234:caching") == ConceptIdParts(0, "abc1234", "commit")
 
 
 def test_parse_concept_id_legacy_unprefixed():
     """A concept_id with neither a numeric nor 'c-' middle segment falls
     back to (0, '', 'pr') so a corrupt or legacy key doesn't crash the
     dashboard. This guards against future schema drift."""
-    from backend.services.redis_client import parse_concept_id
-    assert parse_concept_id("42:weird-shape:caching") == (0, "", "pr")
+    from backend.services.concept_ids import ConceptIdParts, parse_concept_id
+    assert parse_concept_id("42:weird-shape:caching") == ConceptIdParts(0, "", "pr")
 
 
 async def test_get_last_sync_roundtrip():

@@ -14,6 +14,7 @@ from backend.config import (
     REDIS_USERNAME,
 )
 from backend.models import QuizConcept
+from backend.services.concept_ids import parse_concept_id
 from backend.services.sm2 import sm2_next
 
 REDIS_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days minimum
@@ -21,22 +22,7 @@ REDIS_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days minimum
 _redis: aioredis.Redis | None = None
 
 
-def parse_concept_id(concept_id: str) -> tuple[int, str, str]:
-    """Extract (pr_number, commit_sha, source_type) from a concept_id.
 
-    Two valid shapes:
-      - PR:    "{user_id}:{pr_number}:{slug}"             → (int, "", "pr")
-      - commit:"{user_id}:c-{sha_short}:{slug}"         → (0, sha_short, "commit")
-
-    The "c-" prefix on commit ids is the disambiguator that lets a single
-    integer/string branch detect source_type without an extra Redis read.
-    """
-    parts = concept_id.split(":")
-    if len(parts) >= 3 and parts[1].isdigit():
-        return (int(parts[1]), "", "pr")
-    if len(parts) >= 3 and parts[1].startswith("c-"):
-        return (0, parts[1][2:], "commit")
-    return (0, "", "pr")
 
 # Connection options shared by both connect paths. A pooled, health-checked
 # client with tight timeouts keeps a long-lived link to Redis Cloud resilient:
@@ -133,7 +119,7 @@ def _flatten_concept(quiz: dict, state: dict, concept_id: str) -> dict:
     state payloads. Centralizes the field-by-field translation so the three
     list/single fetchers don't drift over time.
     """
-    pr_number, commit_sha, source_type = parse_concept_id(concept_id)
+    parts = parse_concept_id(concept_id)
     return {
         "id": concept_id,
         "concept": quiz["concept"],
@@ -142,7 +128,7 @@ def _flatten_concept(quiz: dict, state: dict, concept_id: str) -> dict:
         "answer_hint": quiz["answer_hint"],
         "repo": quiz.get("repo", ""),
         "pr_title": quiz.get("pr_title", ""),
-        "pr_number": pr_number,
+        "pr_number": parts.pr_number,
         # Flatten SM-2 state; convert next_review unix ts → ISO string
         "ease_factor": state["ease_factor"],
         "interval": state["interval"],
@@ -151,8 +137,8 @@ def _flatten_concept(quiz: dict, state: dict, concept_id: str) -> dict:
             state["next_review"], tz=timezone.utc
         ).isoformat(),
         # Provenance for the dashboard rendering layer.
-        "source_type": source_type,
-        "commit_sha": commit_sha,
+        "source_type": parts.source_type,
+        "commit_sha": parts.commit_sha,
     }
 
 

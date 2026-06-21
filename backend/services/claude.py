@@ -7,6 +7,7 @@ import sentry_sdk
 import backend.config as config
 from backend.models import QuizConcept
 from backend.services.bear2 import compress_diff
+from backend.services.concept_ids import build_concept_id_seed
 from backend.services.redis_client import cache_quiz_content
 
 # Client construction is conditional on USE_TOKENROUTER (see backend/config.py):
@@ -54,25 +55,6 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
-def _build_concept_id(user_id: str, source_id: int | str) -> tuple[str, str, str]:
-    """Build (concept_id_seed, source_type, commit_sha) from a source identifier.
-
-    A source_id is either:
-      - an int (PR number)            → source_type="pr",     commit_sha=""
-      - a string (full commit SHA)    → source_type="commit", commit_sha=<sha>
-
-    The concept_id seed is the per-source identifier that gets the slug
-    appended to form the full concept_id (e.g. "42:101:caching",
-    "42:c-abc1234:caching"). The "c-" prefix on commit ids prevents the
-    existing pr_number extraction in redis_client.py from choking — the
-    middle segment is "c-abc1234", not an int, so pr_number falls through
-    to 0 cleanly.
-    """
-    if isinstance(source_id, int):
-        return (f"{user_id}:{source_id}", "pr", "")
-    return (f"{user_id}:c-{source_id[:7]}", "commit", source_id)
-
-
 async def extract_concepts_and_cache(
     raw_diff: str, user_id: str, source_id: int | str,
     repo: str = "", pr_title: str = "",
@@ -88,7 +70,7 @@ async def extract_concepts_and_cache(
       - int   → PR number; concepts are tagged source_type="pr"
       - str   → full commit SHA; concepts are tagged source_type="commit"
     """
-    concept_id_seed, source_type, commit_sha = _build_concept_id(user_id, source_id)
+    concept_id_seed, source_type, commit_sha = build_concept_id_seed(user_id, source_id)
 
     with sentry_sdk.start_span(op="claude.extract", name="Concept extraction"):
         compressed_diff = await compress_diff(raw_diff)
