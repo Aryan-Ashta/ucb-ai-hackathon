@@ -1,4 +1,6 @@
 """FastAPI dependencies for auth."""
+import hashlib
+import time
 from typing import Annotated
 
 import httpx
@@ -14,7 +16,6 @@ _USER_CACHE_TTL_SECONDS: int = 60
 
 
 def _cache_key(token: str) -> str:
-    import hashlib
     return hashlib.sha256(token.encode()).hexdigest()
 
 
@@ -30,8 +31,6 @@ async def get_current_user(authorization: Annotated[str | None, Header()] = None
 
     Raises 401 on any failure.
     """
-    import time
-
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.removeprefix("Bearer ").strip()

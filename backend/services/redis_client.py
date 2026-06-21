@@ -13,6 +13,7 @@ from backend.config import (
     REDIS_USERNAME,
 )
 from backend.models import QuizConcept
+from backend.services.sm2 import sm2_next
 
 REDIS_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days minimum
 
@@ -139,8 +140,6 @@ async def update_sm2_state(user_id: str, concept_id: str, quality: int) -> int:
     Update SM-2 state after a quiz answer. Returns next_review unix timestamp.
     quality: 0-5 (from Claude grader)
     """
-    from backend.services.sm2 import sm2_next
-
     r = await get_redis()
     state_key = f"concept:{user_id}:{concept_id}:state"
     due_key = f"due:{user_id}"
