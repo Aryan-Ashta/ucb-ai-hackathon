@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.dependencies.auth import get_current_user
+from backend.tests.conftest import fake_gh_token
 
 
 @pytest.fixture(autouse=True)
@@ -57,11 +58,11 @@ def test_post_transcribe_with_auth_returns_transcript(fake_redis, monkeypatch):
     from backend.routers import quiz as quiz_router
     monkeypatch.setattr(quiz_router, "transcribe_audio", fake_transcribe)
 
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.webm", _audio_bytes(), "audio/webm")},
     )
     assert r.status_code == 200
@@ -69,11 +70,11 @@ def test_post_transcribe_with_auth_returns_transcript(fake_redis, monkeypatch):
 
 
 def test_post_transcribe_empty_audio_returns_400(fake_redis):
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.webm", b"", "audio/webm")},
     )
     assert r.status_code == 400
@@ -87,11 +88,11 @@ def test_post_transcribe_no_speech_returns_error_payload(fake_redis, monkeypatch
     from backend.routers import quiz as quiz_router
     monkeypatch.setattr(quiz_router, "transcribe_audio", fake_transcribe)
 
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.webm", _audio_bytes(), "audio/webm")},
     )
     assert r.status_code == 200
@@ -115,11 +116,11 @@ def test_post_transcribe_deepgram_failure_returns_error_envelope(fake_redis, mon
     from backend.routers import quiz as quiz_router
     monkeypatch.setattr(quiz_router, "transcribe_audio", fake_transcribe_raises)
 
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.webm", _audio_bytes(), "audio/webm")},
     )
     assert r.status_code == 200
@@ -137,11 +138,11 @@ def test_post_transcribe_deepgram_malformed_json_returns_error_envelope(fake_red
     from backend.routers import quiz as quiz_router
     monkeypatch.setattr(quiz_router, "transcribe_audio", fake_transcribe_raises)
 
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.webm", _audio_bytes(), "audio/webm")},
     )
     assert r.status_code == 200
@@ -170,11 +171,11 @@ def test_post_grade_unknown_concept_returns_404(fake_redis, monkeypatch):
     from backend.routers import quiz as quiz_router
     monkeypatch.setattr(quiz_router, "grade_answer", fake_grade)
 
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/grade",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         json={"concept_id": "u1:42:fib", "transcript": "memoization"},
     )
     assert r.status_code == 404
@@ -208,11 +209,11 @@ def test_post_grade_stale_state_returns_404_instead_of_500(fake_redis, monkeypat
     # the redis_client symbol imported into the router module.
     monkeypatch.setattr(quiz_router, "update_sm2_state", fake_update_sm2_state_raises)
 
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/grade",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         json={"concept_id": "u1:42:fib", "transcript": "memoization"},
     )
     assert r.status_code == 404, (

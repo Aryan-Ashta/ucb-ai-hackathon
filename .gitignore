@@ -15,4 +15,4 @@ frontend/.env
 
 # Test artifacts
 .coverage
-/coverage
+/coveragebackend/tests/.DS_Store

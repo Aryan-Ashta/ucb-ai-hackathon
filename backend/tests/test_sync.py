@@ -2,6 +2,7 @@
 import pytest
 
 from backend.services import sync as sync_mod
+from backend.tests.conftest import fake_gh_token
 
 
 @pytest.mark.asyncio
@@ -41,7 +42,7 @@ async def test_sync_user_prs_processes_new_prs(monkeypatch, fake_redis):
 
     monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
 
-    summary = await sync_mod.sync_user_prs("ghp_test", "9")
+    summary = await sync_mod.sync_user_prs(fake_gh_token(), "9")
 
     assert summary["repos_seen"] == 1
     assert summary["prs_seen"] == 1
@@ -83,7 +84,7 @@ async def test_sync_user_prs_skips_already_processed(monkeypatch, fake_redis):
 
     monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
 
-    summary = await sync_mod.sync_user_prs("ghp_test", "u1")
+    summary = await sync_mod.sync_user_prs(fake_gh_token(), "u1")
     assert summary["prs_seen"] == 1
     assert summary["prs_skipped"] == 1
     assert summary["prs_processed"] == 0
@@ -116,7 +117,7 @@ async def test_sync_user_prs_skips_empty_diff(monkeypatch, fake_redis):
 
     monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
 
-    summary = await sync_mod.sync_user_prs("ghp_test", "u1")
+    summary = await sync_mod.sync_user_prs(fake_gh_token(), "u1")
     assert summary["prs_seen"] == 1
     assert summary["prs_skipped"] == 1
     assert summary["prs_processed"] == 0
@@ -131,7 +132,7 @@ async def test_sync_user_prs_returns_already_in_progress_when_locked(monkeypatch
     # Pre-acquire the lock so the next call fails to acquire it.
     assert await acquire_sync_lock("u1") is True
     try:
-        summary = await sync_mod.sync_user_prs("ghp_test", "u1")
+        summary = await sync_mod.sync_user_prs(fake_gh_token(), "u1")
         assert summary["status"] == "already_in_progress"
     finally:
         await release_sync_lock("u1")
@@ -152,7 +153,7 @@ async def test_sync_user_prs_records_per_repo_errors(monkeypatch, fake_redis):
 
     monkeypatch.setattr(sync_mod, "list_merged_prs", fake_list_merged_prs)
 
-    summary = await sync_mod.sync_user_prs("ghp_test", "u1")
+    summary = await sync_mod.sync_user_prs(fake_gh_token(), "u1")
     assert summary["repos_seen"] == 2
     assert any("a/b" in e for e in summary["errors"])
 
@@ -180,7 +181,7 @@ async def test_sync_user_prs_passes_no_since_to_list_merged_prs(monkeypatch, fak
 
     monkeypatch.setattr(sync_mod, "list_merged_prs", fake_list_merged_prs)
 
-    summary = await sync_mod.sync_user_prs("ghp_test", "u-full-history")
+    summary = await sync_mod.sync_user_prs(fake_gh_token(), "u-full-history")
     assert summary["status"] == "ok"
     assert calls, "list_merged_prs should have been called at least once"
     for c in calls:
@@ -204,7 +205,7 @@ async def test_sync_user_prs_passes_no_since_to_list_merged_prs(monkeypatch, fak
         return _StubResp([{"number": state["n"], "merged_at": "2020-01-01T00:00:00Z", "user": {"id": 1}}])
 
     monkeypatch.setattr(github_oauth, "_request", fake_request)
-    result = await github_oauth.list_merged_prs("ghp_test", "octo/r", since_iso=None)
+    result = await github_oauth.list_merged_prs(fake_gh_token(), "octo/r", since_iso=None)
     assert state["n"] == github_oauth.MAX_PAGES, (
         f"pagination should cap at MAX_PAGES ({github_oauth.MAX_PAGES}), "
         f"made {state['n']} requests"
@@ -251,7 +252,7 @@ async def test_sync_user_history_ingests_commits_in_addition_to_prs(monkeypatch,
 
     monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
 
-    summary = await sync_mod.sync_user_history("ghp_test", "u-solo")
+    summary = await sync_mod.sync_user_history(fake_gh_token(), "u-solo")
 
     assert summary["status"] == "ok"
     assert summary["prs_seen"] == 0
@@ -306,7 +307,7 @@ async def test_sync_user_history_skips_already_processed_commits(monkeypatch, fa
 
     monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
 
-    summary = await sync_mod.sync_user_history("ghp_test", "u1")
+    summary = await sync_mod.sync_user_history(fake_gh_token(), "u1")
 
     assert summary["commits_seen"] == 2  # both are "seen"
     assert summary["commits_skipped"] == 1  # one is already processed
@@ -344,7 +345,7 @@ async def test_sync_user_history_max_commits_per_repo_caps_ingestion(monkeypatch
     monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)
 
     summary = await sync_mod.sync_user_history(
-        "ghp_test", "u-active", max_commits_per_repo=5
+        fake_gh_token(), "u-active", max_commits_per_repo=5
     )
 
     # _ingest_commit hard-caps at the requested limit.

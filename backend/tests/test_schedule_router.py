@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.dependencies.auth import get_current_user
+from backend.tests.conftest import fake_gh_token
 
 
 @pytest.fixture(autouse=True)
@@ -64,7 +65,7 @@ def test_post_schedule_review_404_when_concept_not_in_redis(monkeypatch):
 
     monkeypatch.setattr(schedule_router, "get_quiz_content", fake_get_quiz_content)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/schedule-review",
@@ -72,7 +73,7 @@ def test_post_schedule_review_404_when_concept_not_in_redis(monkeypatch):
             "concept_id": "abc:1:memoization",
             "next_review_timestamp": 1_719_000_000,
         },
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
     )
     assert r.status_code == 404
     assert r.json()["detail"] == "Concept not found"
@@ -109,7 +110,7 @@ def test_post_schedule_review_returns_scheduled_event(monkeypatch):
     monkeypatch.setattr(schedule_router, "get_quiz_content", fake_get_quiz_content)
     monkeypatch.setattr(schedule_router, "schedule_review_block", fake_schedule_review_block)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/schedule-review",
@@ -117,7 +118,7 @@ def test_post_schedule_review_returns_scheduled_event(monkeypatch):
             "concept_id": "abc:1:memoization",
             "next_review_timestamp": 1_719_000_000,
         },
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
     )
     assert r.status_code == 200
     body = r.json()
@@ -131,12 +132,12 @@ def test_post_schedule_review_validation_error_on_missing_field():
     P1-B7: user_calendar_id is NO LONGER in the body schema; the server
     resolves it from config.POKE_USER_CALENDAR_ID.
     """
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/schedule-review",
         json={},
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
     )
     assert r.status_code == 422
     missing = {err["loc"][-1] for err in r.json()["detail"]}
@@ -152,7 +153,7 @@ def test_post_schedule_review_503_when_poke_calendar_unset(monkeypatch):
     import backend.config as cfg
     monkeypatch.setattr(cfg, "POKE_USER_CALENDAR_ID", "", raising=False)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/schedule-review",
@@ -160,7 +161,7 @@ def test_post_schedule_review_503_when_poke_calendar_unset(monkeypatch):
             "concept_id": "abc:1:memoization",
             "next_review_timestamp": 1_719_000_000,
         },
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
     )
     assert r.status_code == 503
     assert "POKE_USER_CALENDAR_ID" in r.json()["detail"]
@@ -188,7 +189,7 @@ def test_post_schedule_review_ignores_body_supplied_calendar_id(monkeypatch):
     monkeypatch.setattr(schedule_router, "get_quiz_content", fake_get_quiz_content)
     monkeypatch.setattr(schedule_router, "schedule_review_block", fake_schedule_review_block)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/schedule-review",
@@ -197,7 +198,7 @@ def test_post_schedule_review_ignores_body_supplied_calendar_id(monkeypatch):
             "next_review_timestamp": 1_719_000_000,
             "user_calendar_id": "cal-attacker-supplied",  # ignored
         },
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
     )
     assert r.status_code == 200
     assert seen["calendar_id"] == "cal-server-default"
@@ -229,7 +230,7 @@ def test_post_schedule_review_poke_failure_returns_error_envelope(monkeypatch):
     monkeypatch.setattr(schedule_router, "get_quiz_content", fake_get_quiz_content)
     monkeypatch.setattr(schedule_router, "schedule_review_block", fake_schedule_review_raises)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/schedule-review",
@@ -237,7 +238,7 @@ def test_post_schedule_review_poke_failure_returns_error_envelope(monkeypatch):
             "concept_id": "abc:1:memoization",
             "next_review_timestamp": 1_719_000_000,
         },
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
     )
     assert r.status_code == 200
     body = r.json()

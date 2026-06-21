@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.dependencies.auth import get_current_user
+from backend.tests.conftest import fake_gh_token
 
 
 @pytest.fixture(autouse=True)
@@ -59,11 +60,11 @@ def test_post_transcribe_413_when_too_large(fake_redis, monkeypatch):
     from backend.routers import quiz as quiz_router
     monkeypatch.setattr(quiz_router, "transcribe_audio", should_not_be_called)
 
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.webm", b"\x00" * (11 * 1024 * 1024), "audio/webm")},
     )
     assert r.status_code == 413
@@ -74,11 +75,11 @@ def test_post_transcribe_400_when_empty(fake_redis, monkeypatch):
     # Empty body is a separate, pre-existing case — pin the behaviour so the
     # new size + mime checks don't accidentally swallow it.
     _mock_transcribe(monkeypatch)
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.webm", b"", "audio/webm")},
     )
     assert r.status_code == 400
@@ -93,11 +94,11 @@ def test_post_transcribe_415_when_unsupported_mime(fake_redis, monkeypatch):
     from backend.routers import quiz as quiz_router
     monkeypatch.setattr(quiz_router, "transcribe_audio", should_not_be_called)
 
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.bin", _audio_bytes(), "audio/x-fake")},
     )
     assert r.status_code == 415
@@ -107,11 +108,11 @@ def test_post_transcribe_415_when_unsupported_mime(fake_redis, monkeypatch):
 def test_post_transcribe_200_when_allowed_mime(fake_redis, monkeypatch):
     # Happy path: webm content-type + valid body still transcribes successfully.
     _mock_transcribe(monkeypatch)
-    _override_user({"id": "7", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/transcribe",
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
         files={"audio": ("answer.webm", _audio_bytes(), "audio/webm")},
     )
     assert r.status_code == 200

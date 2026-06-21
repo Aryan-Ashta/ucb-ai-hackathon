@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.dependencies.auth import get_current_user
+from backend.tests.conftest import fake_gh_token
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +43,7 @@ def test_get_sync_status_requires_auth():
 
 
 def test_get_sync_status_returns_null_when_never_synced(fake_redis):
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.get("/api/sync/status", headers={"Authorization": "Bearer x"})
     assert r.status_code == 200
@@ -54,7 +55,7 @@ def test_get_sync_status_returns_null_when_never_synced(fake_redis):
 
 def test_get_sync_status_returns_iso_when_synced(fake_redis):
     asyncio.run(_seed_last_sync("5", 1_700_000_000))
-    _override_user({"id": "5", "login": "bob", "token": "ghp_test"})
+    _override_user({"id": "5", "login": "bob", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.get("/api/sync/status", headers={"Authorization": "Bearer x"})
     assert r.status_code == 200
@@ -77,7 +78,7 @@ def test_post_sync_runs_orchestrator_and_returns_summary(fake_redis, monkeypatch
         }
 
     monkeypatch.setattr(sync_router, "sync_user_prs", fake_sync)
-    _override_user({"id": "5", "login": "bob", "token": "ghp_test"})
+    _override_user({"id": "5", "login": "bob", "token": fake_gh_token()})
 
     client = TestClient(app)
     r = client.post("/api/sync", headers={"Authorization": "Bearer x"})

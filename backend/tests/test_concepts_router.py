@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.dependencies.auth import get_current_user
+from backend.tests.conftest import fake_gh_token
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +56,7 @@ async def test_get_concept_by_id_returns_concept_when_found(fake_redis):
     )
     await cache_quiz_content("99", concept)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.get(
         "/api/concepts/99:1:memoization",
@@ -86,7 +87,7 @@ def test_get_concept_by_id_404_when_missing(fake_redis, monkeypatch):
     from backend.routers import concepts as concepts_router
     monkeypatch.setattr(concepts_router, "get_quiz_content", fake_get_quiz_content)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.get(
         "/api/concepts/nope:nope:nope",

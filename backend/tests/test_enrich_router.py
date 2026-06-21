@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.dependencies.auth import get_current_user
+from backend.tests.conftest import fake_gh_token
 
 
 @pytest.fixture(autouse=True)
@@ -51,12 +52,12 @@ def test_post_enrich_returns_snippet(monkeypatch):
 
     monkeypatch.setattr(enrich_router, "enrich_concept", fake_enrich_concept)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/enrich",
         json={"concept_id": "abc:1:memoization", "concept": "memoization"},
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
     )
     assert r.status_code == 200
     body = r.json()
@@ -77,12 +78,12 @@ def test_post_enrich_returns_error_envelope_on_service_failure(monkeypatch):
 
     monkeypatch.setattr(enrich_router, "enrich_concept", fake_enrich_concept)
 
-    _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
+    _override_user({"id": "99", "login": "alice", "token": fake_gh_token()})
     client = TestClient(app)
     r = client.post(
         "/api/enrich",
         json={"concept_id": "abc:1:memoization", "concept": "memoization"},
-        headers={"Authorization": "Bearer ghp_test"},
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
     )
     assert r.status_code == 200
     body = r.json()

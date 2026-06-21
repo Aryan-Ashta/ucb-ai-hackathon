@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from backend.services import github_oauth
+from backend.tests.conftest import fake_gh_token
 
 
 def _patch_request(monkeypatch, handler):
@@ -33,7 +34,7 @@ def test_list_user_repos_paginates(monkeypatch):
         return []
 
     _patch_request(monkeypatch, handler)
-    repos = _run(github_oauth.list_user_repos("ghp_test"))
+    repos = _run(github_oauth.list_user_repos(fake_gh_token()))
     assert {r["full_name"] for r in repos} == {"octo/r1", "octo/r2"}
 
 
@@ -57,7 +58,7 @@ def test_list_merged_prs_filters_by_since_and_stops_early(monkeypatch):
     _patch_request(monkeypatch, handler)
     result = _run(
         github_oauth.list_merged_prs(
-            "ghp_test", "octo/r", since_iso="2026-06-01T00:00:00Z"
+            fake_gh_token(), "octo/r", since_iso="2026-06-01T00:00:00Z"
         )
     )
     # Only the two PRs merged after 2026-06-01 are returned; #8 stops the loop
@@ -82,7 +83,7 @@ def test_list_merged_prs_includes_cross_author(monkeypatch):
     _patch_request(monkeypatch, handler)
     result = _run(
         github_oauth.list_merged_prs(
-            "ghp_test", "octo/r", since_iso="2026-06-01T00:00:00Z"
+            fake_gh_token(), "octo/r", since_iso="2026-06-01T00:00:00Z"
         )
     )
     assert {p["number"] for p in result} == {1, 2}
@@ -96,7 +97,7 @@ def test_fetch_pr_diff_returns_raw_text(monkeypatch):
         return diff_text
 
     _patch_request(monkeypatch, handler)
-    text = _run(github_oauth.fetch_pr_diff("ghp_test", "octo/r", 42))
+    text = _run(github_oauth.fetch_pr_diff(fake_gh_token(), "octo/r", 42))
     assert text == diff_text
 
 
@@ -121,7 +122,7 @@ def test_list_commits_paginates_and_caps_at_max(monkeypatch):
     handler.calls = 0
 
     _patch_request(monkeypatch, handler)
-    commits = _run(github_oauth.list_commits("ghp_test", "octo/r", max_commits=150))
+    commits = _run(github_oauth.list_commits(fake_gh_token(), "octo/r", max_commits=150))
     assert len(commits) == 150  # exactly 100 + 50 from the second page
     assert handler.calls == 2  # never hit the third (empty) page
 
@@ -137,7 +138,7 @@ def test_list_commits_returns_short_pages_unchanged(monkeypatch):
     handler.calls = 0
 
     _patch_request(monkeypatch, handler)
-    commits = _run(github_oauth.list_commits("ghp_test", "octo/r"))
+    commits = _run(github_oauth.list_commits(fake_gh_token(), "octo/r"))
     assert len(commits) == 7
     assert handler.calls == 1
 
@@ -153,7 +154,7 @@ def test_list_commits_respects_max_pages_safety_cap(monkeypatch):
         return [{"sha": f"sha_{i:04d}"} for i in range(100)]
 
     _patch_request(monkeypatch, handler)
-    commits = _run(github_oauth.list_commits("ghp_test", "octo/r", max_commits=10_000))
+    commits = _run(github_oauth.list_commits(fake_gh_token(), "octo/r", max_commits=10_000))
     # MAX_PAGES is 50; at 100/page that's 5000 max.
     assert 0 < len(commits) <= github_oauth.MAX_PAGES * 100
 
@@ -169,7 +170,7 @@ def test_fetch_commit_diff_returns_raw_text(monkeypatch):
         return diff_text
 
     _patch_request(monkeypatch, handler)
-    text = _run(github_oauth.fetch_commit_diff("ghp_test", "octo/r", "abc1234567890def"))
+    text = _run(github_oauth.fetch_commit_diff(fake_gh_token(), "octo/r", "abc1234567890def"))
     assert text == diff_text
 
 
@@ -181,7 +182,7 @@ def test_fetch_commit_diff_url_includes_full_sha(monkeypatch):
         return ""
 
     _patch_request(monkeypatch, handler)
-    _run(github_oauth.fetch_commit_diff("ghp_test", "octo/r", "abc1234567890def"))
+    _run(github_oauth.fetch_commit_diff(fake_gh_token(), "octo/r", "abc1234567890def"))
     assert len(captured_urls) == 1
     assert captured_urls[0].endswith("/repos/octo/r/commits/abc1234567890def")
 

@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from backend.dependencies.auth import get_current_user
+from backend.tests.conftest import fake_gh_token
 
 app = FastAPI()
 
@@ -54,7 +55,7 @@ def test_non_bearer_header_returns_401():
 def test_valid_token_returns_user_identity(monkeypatch, fake_redis):
     _patch_github(monkeypatch, 200, {"id": 4242, "login": "octocat"})
     with TestClient(app) as c:
-        r = c.get("/me", headers={"Authorization": "Bearer ghp_test"})
+        r = c.get("/me", headers={"Authorization": f"Bearer {fake_gh_token()}"})
     assert r.status_code == 200
     assert r.json() == {"id": "4242", "login": "octocat"}
 
@@ -69,18 +70,20 @@ def test_github_401_returns_401(monkeypatch, fake_redis):
 def test_valid_token_persists_encrypted_to_redis(monkeypatch, fake_redis):
     from backend.services.token_store import get_token
 
+    token = fake_gh_token("xyz")
     _patch_github(monkeypatch, 200, {"id": 99, "login": "alice"})
     with TestClient(app) as c:
-        r = c.get("/me", headers={"Authorization": "Bearer ghp_xyz"})
+        r = c.get("/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     # The dependency should have stored the token; verify by reading it back
     # and confirming the round-trip decrypts to the original plaintext.
     stored = asyncio.run(get_token("99"))
-    assert stored == "ghp_xyz"
+    assert stored == token
 
 
 def test_second_call_uses_cache_no_second_github_hit(monkeypatch, fake_redis):
     calls = []
+    token = fake_gh_token("cached")
 
     async def fake_get(self, url, **kw):
         calls.append(url)
@@ -89,7 +92,7 @@ def test_second_call_uses_cache_no_second_github_hit(monkeypatch, fake_redis):
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
     with TestClient(app) as c:
         for _ in range(3):
-            c.get("/me", headers={"Authorization": "Bearer ghp_cached"})
+            c.get("/me", headers={"Authorization": f"Bearer {token}"})
     # Only the first call should hit GitHub; the next two hit the in-process cache.
     assert len(calls) == 1
 
@@ -121,7 +124,7 @@ def test_user_cache_is_bounded(monkeypatch, fake_redis):
     with TestClient(app) as c:
         # Push 5 distinct tokens through; cache maxsize is 3.
         for i in range(5):
-            r = c.get("/me", headers={"Authorization": f"Bearer ghp_b2_{i}"})
+            r = c.get("/me", headers={"Authorization": f"Bearer {fake_gh_token(f'b2_{i}')}"})
             assert r.status_code == 200
 
     # After 5 inserts on a maxsize=3 cache, the cache must hold at most 3.
@@ -150,16 +153,17 @@ def test_user_cache_ttl_expires_entries(monkeypatch, fake_redis):
 
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
 
+    token = fake_gh_token("ttl_1")
     with TestClient(app) as c:
-        r1 = c.get("/me", headers={"Authorization": "Bearer ghp_ttl_1"})
+        r1 = c.get("/me", headers={"Authorization": f"Bearer {token}"})
         assert r1.status_code == 200
         # Same token, should hit cache → no second GitHub call.
-        r2 = c.get("/me", headers={"Authorization": "Bearer ghp_ttl_1"})
+        r2 = c.get("/me", headers={"Authorization": f"Bearer {token}"})
         assert r2.status_code == 200
         assert len(calls) == 1
         # Sleep past TTL, then re-call → cache miss → second GitHub call.
         _time.sleep(0.1)
-        r3 = c.get("/me", headers={"Authorization": "Bearer ghp_ttl_1"})
+        r3 = c.get("/me", headers={"Authorization": f"Bearer {token}"})
         assert r3.status_code == 200
         assert len(calls) == 2
 
@@ -193,7 +197,7 @@ def test_store_token_failure_captured_to_sentry(monkeypatch, fake_redis):
     monkeypatch.setattr(sentry_sdk, "add_breadcrumb", fake_add_breadcrumb)
 
     with TestClient(app) as c:
-        r = c.get("/me", headers={"Authorization": "Bearer ghp_persist_fail"})
+        r = c.get("/me", headers={"Authorization": f"Bearer {fake_gh_token('persist_fail')}"})
 
     # The request still succeeds — Redis blip must not block auth.
     assert r.status_code == 200
