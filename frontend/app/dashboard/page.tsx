@@ -21,7 +21,6 @@ import {
 } from "@/lib/concepts";
 
 import { CommitBlock, DueCard, PRBlock, SectionLabel } from "./components";
-import { anySignal } from "@/lib/abort";
 
 /**
  * Mission Control — Direction B from the Banana-Duck Learning Platform design
@@ -114,8 +113,15 @@ export default function Dashboard() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  const [syncSummary, setSyncSummary] = useState<string | null>(null);
   const hasAutoSyncedRef = useRef(false);
   const syncingRef = useRef(false);
+  const syncCtrlRef = useRef<AbortController | null>(null);
+
+  const showSyncSummary = useCallback((msg: string) => {
+    setSyncSummary(msg);
+    setTimeout(() => setSyncSummary(null), 4000);
+  }, []);
   // P2-D3 (Trace M1): sessionStorage mirror of hasAutoSyncedRef so the
   // flag survives unmount/remount cycles. A ref resets when the component
   // unmounts, so navigating /dashboard → / → /dashboard mid-sync would
@@ -146,12 +152,11 @@ export default function Dashboard() {
     setSyncError(null);
     const inner = new AbortController();
     syncCtrlRef.current = inner;
-    const composed = anySignal([inner.signal, signal ?? null]);
     try {
-      await api.triggerSync(token);
+      const syncResp = await api.triggerSync(token, inner.signal);
       const [dueData, allData] = await Promise.all([
-        api.listDueConcepts(token, composed.signal),
-        api.listAllConcepts(token, composed.signal),
+        api.listDueConcepts(token, inner.signal),
+        api.listAllConcepts(token, inner.signal),
       ]);
       setPrs(groupByPR(dueData.due));
       setAllPrs(groupByPR(allData.concepts));
@@ -169,6 +174,7 @@ export default function Dashboard() {
         showSyncSummary("synced");
       }
     } catch (err) {
+      if (isAbortError(err)) return;
       setSyncError(apiErrorToMessage(err, "dashboard sync"));
     } finally {
       syncingRef.current = false;

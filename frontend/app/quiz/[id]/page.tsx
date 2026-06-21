@@ -1,6 +1,6 @@
 "use client";
 
-import { gradeAnswer, getConcept, scheduleReview, transcribeAudio } from "@/lib/api";
+import { gradeAnswer, getConcept, scheduleReview, transcribeAudio, USING_MOCK } from "@/lib/api";
 import type { Concept, GradeResult } from "@/lib/types";
 import { isAbortError } from "@/lib/api-error";
 import { useRecorder } from "@/lib/useRecorder";
@@ -29,7 +29,7 @@ export default function QuizPage() {
   const params = useParams<{ id: string }>();
   const id = decodeURIComponent(params.id);
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const rec = useRecorder();
 
   const [concept, setConcept] = useState<Concept | null>(null);
@@ -53,6 +53,14 @@ export default function QuizPage() {
 
   // Load (or reload, on "Next concept") the concept for this id.
   useEffect(() => {
+    // Don't fire the authenticated fetch until NextAuth has resolved the
+    // session. Quiz links are plain <a href> elements (full-page nav), so
+    // useSession() starts in "loading" on every page load. Firing the API
+    // call before the token is ready returns 401, which the catch below
+    // converts to "notfound" — making every quiz link appear broken.
+    // Mock mode doesn't use the token, so we skip the guard there.
+    if (!USING_MOCK && sessionStatus === "loading") return;
+
     // Abort any in-flight grading from the previous concept before starting
     // a fresh fetch — keeps the controller lifecycle tied to the id.
     ctrlRef.current?.abort();
@@ -75,9 +83,10 @@ export default function QuizPage() {
         setPhase("notfound");
       });
     return () => ctrl.abort();
-    // rec.reset is stable; intentionally keyed on id only.
+    // rec.reset is stable; keyed on id + sessionStatus so the fetch
+    // re-fires once the session settles from "loading" → "authenticated".
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, sessionStatus]);
 
   const userId = id.split(":")[0] || "demo";
   const runGrading = useCallback(
