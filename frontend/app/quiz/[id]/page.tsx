@@ -49,21 +49,25 @@ export default function QuizPage() {
 
   // Load (or reload, on "Next concept") the concept for this id.
   useEffect(() => {
-    let alive = true;
+    const ctrl = new AbortController();
     setPhase("loading");
     setGrade(null);
     setTranscript("");
     setErrorMsg(null);
     setTyped("");
     rec.reset();
-    getConcept(id, session?.accessToken ?? undefined).then((c) => {
-      if (!alive) return;
-      setConcept(c);
-      setPhase(c ? "intro" : "notfound");
-    });
-    return () => {
-      alive = false;
-    };
+    getConcept(id, session?.accessToken ?? undefined, ctrl.signal)
+      .then((c) => {
+        setConcept(c);
+        setPhase(c ? "intro" : "notfound");
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err && typeof err === "object" && "name" in err && (err as { name?: string }).name === "AbortError") return;
+        setConcept(null);
+        setPhase("notfound");
+      });
+    return () => ctrl.abort();
     // rec.reset is stable; intentionally keyed on id only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -75,13 +79,14 @@ export default function QuizPage() {
     // to grading. Audio answers are transcribed first.
     async (audio: Blob | null, directText?: string) => {
       if (!concept) return;
+      const ctrl = new AbortController();
       setPhase("thinking");
       setErrorMsg(null);
       try {
         let text = directText?.trim() ?? "";
         if (!directText) {
           setStage("transcribing");
-          const r = await transcribeAudio(audio!, session?.accessToken ?? undefined);
+          const r = await transcribeAudio(audio!, session?.accessToken ?? undefined, ctrl.signal);
           if (r.error || !r.transcript.trim()) {
             setErrorMsg(r.error ?? "Couldn't hear that one. Give it another go.");
             setPhase("failed");
@@ -91,10 +96,12 @@ export default function QuizPage() {
         }
         setTranscript(text);
         setStage("grading");
-        const g = await gradeAnswer({ user_id: userId, concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined);
+        const g = await gradeAnswer({ user_id: userId, concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined, ctrl.signal);
         setGrade(g);
         setPhase("result");
-      } catch {
+      } catch (err: unknown) {
+        if (err && typeof err === "object" && "name" in err && (err as { name?: string }).name === "AbortError") return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
         setErrorMsg("Something broke while scoring that. Try again in a moment.");
         setPhase("failed");
       }
@@ -234,6 +241,10 @@ export default function QuizPage() {
         onNext={() => (nextId ? router.push(`/quiz/${nextId}`) : router.push("/dashboard"))}
         onRetry={() => {
           rec.reset();
+          setTranscript("");
+          setGrade(null);
+          setErrorMsg(null);
+          setTyped("");
           setPhase("intro");
         }}
         passed={grade?.passed ?? false}

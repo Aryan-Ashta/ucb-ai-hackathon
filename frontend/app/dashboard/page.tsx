@@ -192,13 +192,18 @@ export default function Dashboard() {
   // Live backend: fetch due concepts and group into PRs
   useEffect(() => {
     if (USING_MOCK || status !== "authenticated" || !session?.accessToken) return;
+    const ctrl = new AbortController();
     setFetching(true);
     setFetchError(null);
     api
-      .listDueConcepts(session.accessToken)
+      .listDueConcepts(session.accessToken, ctrl.signal)
       .then((data) => setPrs(groupByPR(data.due)))
-      .catch((err) => setFetchError(err instanceof Error ? err.message : "Failed to load concepts"))
+      .catch((err) => {
+        if (err?.name === "AbortError") return;
+        setFetchError(err instanceof Error ? err.message : "Failed to load concepts");
+      })
       .finally(() => setFetching(false));
+    return () => ctrl.abort();
   }, [status, session?.accessToken]);
 
   if (status === "loading" || !session) {

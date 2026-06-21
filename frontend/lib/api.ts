@@ -87,14 +87,15 @@ export interface SyncStatusResponse {
 
 /** Typed endpoint object for direct use in components that need live-only calls. */
 export const api = {
-  listDueConcepts: (token: string) =>
-    apiFetch<ListDueResponse>("/api/concepts", { accessToken: token }),
+  listDueConcepts: (token: string, signal?: AbortSignal) =>
+    apiFetch<ListDueResponse>("/api/concepts", { accessToken: token, ...(signal ? { signal } : {}) }),
 
-  gradeAnswer: (token: string, conceptId: string, transcript: string) =>
+  gradeAnswer: (token: string, conceptId: string, transcript: string, signal?: AbortSignal) =>
     apiFetch<GradeResult>("/api/grade", {
       method: "POST",
       accessToken: token,
       body: JSON.stringify({ concept_id: conceptId, transcript }),
+      ...(signal ? { signal } : {}),
     }),
 
   triggerSync: (token: string) =>
@@ -110,6 +111,7 @@ export const api = {
     token: string,
     blob: Blob,
     filename = "answer.webm",
+    signal?: AbortSignal,
   ): Promise<{ transcript: string; error?: string }> => {
     const fd = new FormData();
     fd.append("audio", blob, filename);
@@ -117,6 +119,7 @@ export const api = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: fd,
+      ...(signal ? { signal } : {}),
     });
     if (!res.ok) {
       const body = await res.text();
@@ -129,12 +132,16 @@ export const api = {
 // --- Quiz-UI compatible functions (mock or live) ---
 
 /** Fetch a single concept by id. In live mode, pulls the due list and finds by id. */
-export async function getConcept(id: string, accessToken?: string): Promise<Concept | null> {
+export async function getConcept(
+  id: string,
+  accessToken?: string,
+  signal?: AbortSignal,
+): Promise<Concept | null> {
   if (USING_MOCK) {
     await delay(300);
     return (findMockConcept(id) as Concept | undefined) ?? null;
   }
-  const data = await api.listDueConcepts(accessToken ?? "");
+  const data = await api.listDueConcepts(accessToken ?? "", signal);
   return data.due.find((c) => c.id === id) ?? null;
 }
 
@@ -142,12 +149,13 @@ export async function getConcept(id: string, accessToken?: string): Promise<Conc
 export async function transcribeAudio(
   audio: Blob,
   accessToken?: string,
+  signal?: AbortSignal,
 ): Promise<TranscribeResult> {
   if (USING_MOCK) {
     await delay(1100);
     return { transcript: MOCK_TRANSCRIPT };
   }
-  return api.transcribeAudio(accessToken ?? "", audio);
+  return api.transcribeAudio(accessToken ?? "", audio, "answer.webm", signal);
 }
 
 /** Grade a transcript against a concept. In live mode, calls /api/grade with bearer auth. */
@@ -155,12 +163,13 @@ export async function gradeAnswer(
   req: GradeRequest,
   concept: Concept,
   accessToken?: string,
+  signal?: AbortSignal,
 ): Promise<GradeResult> {
   if (USING_MOCK) {
     await delay(1300);
     return mockGrade(concept, req.transcript);
   }
-  return api.gradeAnswer(accessToken ?? "", concept.id, req.transcript);
+  return api.gradeAnswer(accessToken ?? "", concept.id, req.transcript, signal);
 }
 
 // A plausible spoken answer, used only in mock mode when the user records audio.
