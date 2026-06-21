@@ -176,10 +176,41 @@ def test_post_grade_unknown_concept_returns_404(fake_redis, monkeypatch):
     r = client.post(
         "/api/grade",
         headers={"Authorization": f"Bearer {fake_gh_token()}"},
-        json={"concept_id": "u1:42:fib", "transcript": "memoization"},
+        json={"concept_id": "7:42:fib", "transcript": "memoization"},
     )
     assert r.status_code == 404
     assert "not found" in r.json()["detail"].lower()
+
+
+def test_post_grade_idor_blocks_cross_user_concept(fake_redis, monkeypatch):
+    """Trace 2 H4 (Quiz #4): a user_id segment in the concept_id that
+    doesn't match the signed-in user must be rejected with 403, BEFORE
+    grade_answer runs (which would leak work + spend tokens).
+    """
+    from backend.routers import quiz as quiz_router
+
+    grade_called = False
+
+    async def fake_grade(**_kwargs):
+        nonlocal grade_called
+        grade_called = True
+        return {"passed": True, "quality": 5, "explanation": "ok"}
+
+    monkeypatch.setattr(quiz_router, "grade_answer", fake_grade)
+
+    _override_user({"id": "7", "login": "alice", "token": fake_gh_token()})
+    client = TestClient(app)
+    # User "7" tries to grade a concept belonging to user "999" —
+    # the IDOR check must reject this with 403.
+    r = client.post(
+        "/api/grade",
+        headers={"Authorization": f"Bearer {fake_gh_token()}"},
+        json={"concept_id": "999:42:fib", "transcript": "memoization"},
+    )
+    assert r.status_code == 403
+    assert "does not belong" in r.json()["detail"].lower()
+    # Critical: Claude was NOT called.
+    assert not grade_called, "grade_answer must not be called on cross-user concept_id"
 
 
 def test_post_grade_stale_state_returns_404_instead_of_500(fake_redis, monkeypatch):
@@ -191,8 +222,11 @@ def test_post_grade_stale_state_returns_404_instead_of_500(fake_redis, monkeypat
 
     async def fake_get_quiz_content(_user_id, _concept_id):
         # Return a valid quiz payload so the router reaches update_sm2_state.
+        # IDOR check (Quiz #4) now requires user_segment == user["id"];
+        # since the test's _override_user sets id="7", use "7:42:fib" here
+        # so we get past the IDOR check and reach the update_sm2_state path.
         return {
-            "id": "u1:42:fib",
+            "id": "7:42:fib",
             "concept": "fib", "roast_text": "", "question_text": "q",
             "answer_hint": "h", "repo": "x/y", "pr_title": "t",
             "pr_number": 42, "ease_factor": 2.5, "interval": 1,
@@ -200,7 +234,7 @@ def test_post_grade_stale_state_returns_404_instead_of_500(fake_redis, monkeypat
         }
 
     async def fake_update_sm2_state_raises(*_args, **_kwargs):
-        raise ValueError("No state found for concept u1:42:fib")
+        raise ValueError("No state found for concept 7:42:fib")
 
     from backend.routers import quiz as quiz_router
     monkeypatch.setattr(quiz_router, "grade_answer", fake_grade)
@@ -214,7 +248,7 @@ def test_post_grade_stale_state_returns_404_instead_of_500(fake_redis, monkeypat
     r = client.post(
         "/api/grade",
         headers={"Authorization": f"Bearer {fake_gh_token()}"},
-        json={"concept_id": "u1:42:fib", "transcript": "memoization"},
+        json={"concept_id": "7:42:fib", "transcript": "memoization"},
     )
     assert r.status_code == 404, (
         f"Stale concept state must surface as 404, got {r.status_code}: {r.text}"

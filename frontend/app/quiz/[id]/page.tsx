@@ -75,7 +75,6 @@ export default function QuizPage() {
   }, [id]);
 
   const userId = id.split(":")[0] || "demo";
-
   const runGrading = useCallback(
     // `directText` is a typed answer — it skips transcription and goes straight
     // to grading. Audio answers are transcribed first.
@@ -106,7 +105,7 @@ export default function QuizPage() {
         }
         setTranscript(text);
         setStage("grading");
-        const g = await gradeAnswer({ user_id: userId, concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined, signal);
+        const g = await gradeAnswer({ concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined, signal);
         setGrade(g);
         setPhase("result");
         // H1 (Trace 2): fire-and-forget the calendar-event hook after the grade
@@ -126,7 +125,7 @@ export default function QuizPage() {
         setPhase("failed");
       }
     },
-    [concept, userId, session?.accessToken],
+    [concept, session?.accessToken],
   );
 
   const handleOrbClick = useCallback(async () => {

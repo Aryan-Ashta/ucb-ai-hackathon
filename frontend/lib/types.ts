@@ -37,7 +37,12 @@ export interface GradeResult {
 
 /** Request body for POST /api/grade. */
 export interface GradeRequest {
-  user_id: string;
+  // Trace 2 H3 (Quiz #3): user_id was a dead field. The backend
+  // silently dropped it (GradeRequest only declares concept_id +
+  // transcript; the server derives user_id from get_current_user).
+  // The frontend's user_id = id.split(":")[0] documented a wrong
+  // trust boundary — anyone reading the call site might think the
+  // server trusts the URL's first colon-segment, which it doesn't.
   concept_id: string;
   transcript: string;
 }

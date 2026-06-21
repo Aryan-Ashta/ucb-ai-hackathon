@@ -84,6 +84,23 @@ class GradeRequest(BaseModel):
 @router.post("/grade")
 async def grade(req: GradeRequest, user=Depends(get_current_user)):
     """Grade a spoken answer and update SM-2 state for the signed-in user."""
+    # Trace 2 H4 (Quiz #4): soft IDOR. Concept IDs are encoded as
+    # "{user_id}:{pr_or_commit}:{slug}" — verify the user_id segment
+    # matches the signed-in user before we hand them the quiz content.
+    # parse_concept_id returns parts with the canonical user_id; if the
+    # caller is asking about someone else's concept, 403.
+    from backend.services.concept_ids import parse_concept_id
+    parts = parse_concept_id(req.concept_id)
+    if not parts.source_type:
+        # parse_concept_id returns "pr" as the default — only an empty
+        # source_type (malformed input) gives back "". Treat as 403.
+        raise HTTPException(status_code=403, detail="concept does not belong to this user")
+    # Reconstruct the user_id segment from the concept_id directly
+    # (parse_concept_id doesn't surface it for commit-sourced rows).
+    user_segment = req.concept_id.split(":", 1)[0]
+    if user_segment != user["id"]:
+        raise HTTPException(status_code=403, detail="concept does not belong to this user")
+
     quiz = await get_quiz_content(user["id"], req.concept_id)
     if not quiz:
         raise HTTPException(status_code=404, detail="Concept not found in Redis")
