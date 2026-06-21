@@ -56,3 +56,15 @@ def test_breadcrumb_label_is_propagated(mock_sentry):
     _parse_json_envelope("broken", breadcrumb_label="extract")
     msg = mock_sentry.add_breadcrumb.call_args.kwargs["message"]
     assert msg.startswith("JSON parse failed [extract]")
+
+
+@patch("backend.services.claude.sentry_sdk")
+def test_strips_redacted_thinking_before_parse(mock_sentry):
+    """MiniMax-M3 may prefix JSON with a <think> reasoning block."""
+    out = _parse_json_envelope(
+        '<think>Let me think about this...</think>\n'
+        '{"quality": 4, "passed": true, "explanation": "ok"}',
+        breadcrumb_label="grade",
+    )
+    assert out == {"quality": 4, "passed": True, "explanation": "ok"}
+    mock_sentry.capture_exception.assert_not_called()

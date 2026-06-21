@@ -23,21 +23,17 @@ def _require(key: str) -> str:
 # GITHUB_TOKEN is still honored as a server-wide fallback for cron / scripts,
 # but the request hot path uses the per-user OAuth token from the bearer header.
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")  # optional; unauth is rate-limited
-ANTHROPIC_API_KEY = _require("ANTHROPIC_API_KEY")
+TOKENROUTER_API_KEY = _require("TOKENROUTER_API_KEY")
 TOKEN_COMPANY_API_KEY = _require("TOKEN_COMPANY_API_KEY")
 DEEPGRAM_API_KEY = _require("DEEPGRAM_API_KEY")
 
-# ── AI gateway (TokenRouter) ────────────────────────────────────────────────
-# Set USE_TOKENROUTER=true to route all Claude calls through tokenrouter.com
-# instead of api.anthropic.com. The Anthropic Python SDK is pointed at
-# tokenrouter's Anthropic-compatible endpoint (https://api.tokenrouter.com);
-# the SDK auto-appends /v1/messages to base_url. Set ANTHROPIC_MODEL if
-# tokenrouter expects a prefixed name (e.g. "anthropic/claude-sonnet-4-6").
-# Leave USE_TOKENROUTER unset/false to use direct Anthropic (default).
-USE_TOKENROUTER = os.environ.get("USE_TOKENROUTER", "").lower() in ("1", "true", "yes")
-TOKENROUTER_BASE_URL = os.environ.get("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com")
-TOKENROUTER_API_KEY = os.environ.get("TOKENROUTER_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+# ── AI gateway (TokenRouter / OpenAI-compatible) ──────────────────────────
+# TokenRouter serves /v1/chat/completions; the OpenAI SDK appends that path to
+# TOKENROUTER_BASE_URL (which must include /v1).
+TOKENROUTER_BASE_URL = os.environ.get(
+    "TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1"
+)
+TOKENROUTER_MODEL = os.environ.get("TOKENROUTER_MODEL", "minimax-m3")
 
 # ── Redis Cloud ───────────────────────────────────────────────────────────
 # Redis Cloud → your database → "Connect" gives you four things:

@@ -18,7 +18,7 @@ def reload_main(monkeypatch):
     # Make sure required env vars are present (TOKEN_ENCRYPTION_KEY is required
     # by config.py and the test process may not have it set).
     monkeypatch.setenv("TOKEN_ENCRYPTION_KEY", "test-key-not-real-encryption-only-for-tests")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("TOKENROUTER_API_KEY", "test-key")
     monkeypatch.setenv("TOKEN_COMPANY_API_KEY", "test-key")
     monkeypatch.setenv("DEEPGRAM_API_KEY", "test-key")
     monkeypatch.setenv("GITHUB_TOKEN", "")
