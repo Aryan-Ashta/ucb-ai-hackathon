@@ -96,6 +96,13 @@ export interface SyncSummary {
   prs_seen: number;
   prs_processed: number;
   prs_skipped: number;
+  // Path 1 (NEW) added commit ingestion alongside PRs (commit `80c767f`)
+  // but the frontend SyncSummary type wasn't updated. Adding the missing
+  // fields so the dashboard success indicator (Dashboard #5/#9) can
+  // count commits alongside PRs.
+  commits_seen: number;
+  commits_processed: number;
+  commits_skipped: number;
   errors: string[];
 }
 

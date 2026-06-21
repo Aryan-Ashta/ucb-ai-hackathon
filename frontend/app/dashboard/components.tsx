@@ -14,7 +14,10 @@ import { formatDue, getDueStatus, masteryPct, mergedAgo } from "@/lib/format";
 export function DueCard({ concept }: { concept: Concept & { prTitle: string } }) {
   const status = getDueStatus(concept.next_review);
   const isOverdue = status === "overdue";
-  const isCommit = concept.source_type === "commit";
+  // Trace 3 L2: legacy data has source_type undefined. Fall back to the
+  // c- prefix in the concept_id to disambiguate commit-sourced rows that
+  // were ingested before source_type was written.
+  const isCommit = concept.source_type === "commit" || concept.id.includes(":c-");
   const shortSha = concept.commit_sha ? concept.commit_sha.slice(0, 7) : "";
   const provenance = isCommit
     ? `${concept.repo}@${shortSha}`

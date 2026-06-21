@@ -57,8 +57,7 @@ export function groupByCommit(concepts: Concept[]): CommitGroup[] {
     if (!byRepo[repo]) byRepo[repo] = [];
     byRepo[repo].push(c);
   }
-  for (const repo of Object.keys(byRepo)) {
-    byRepo[repo].sort((a, b) => a.commit_sha?.localeCompare(b.commit_sha ?? "") ?? 0);
-  }
+  // Trace 3 L1: input order from zrange wins (already deterministic).
+  // The previous localeCompare was alphabetical noise, not chronological.
   return Object.entries(byRepo).map(([repo, concepts]) => ({ repo, concepts }));
 }

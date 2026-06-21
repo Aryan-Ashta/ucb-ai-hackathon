@@ -100,7 +100,9 @@ describe("groupByCommit", () => {
     ];
     const groups = groupByCommit(cs);
     expect(groups.map((g) => g.repo)).toEqual(["r1", "r2"]);
-    expect(groups[0].concepts.map((c) => c.commit_sha)).toEqual(["a1a1a1a", "m5m5m5m", "z9z9z9z"]);
+    // Trace 3 L1: input order wins (deterministic from zrange), NOT alphabetical.
+    // The previous localeCompare on commit_sha was alphabetical noise.
+    expect(groups[0].concepts.map((c) => c.commit_sha)).toEqual(["z9z9z9z", "a1a1a1a", "m5m5m5m"]);
     expect(groups[1].concepts).toHaveLength(1);
   });
 

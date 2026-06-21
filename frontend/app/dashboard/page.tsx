@@ -35,6 +35,11 @@ export default function Dashboard() {
   const [fetching, setFetching] = useState(!USING_MOCK);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  // Trace 3 M4: brief post-sync confirmation. Auto-clears after a few
+  // seconds so the user knows their click did something but the indicator
+  // doesn't linger.
+  const [syncSummary, setSyncSummary] = useState<string | null>(null);
+  const syncSummaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Auto-sync once per session when the user has no due concepts (first-run
   // OR caught-up). Re-sync is cheap (per-PR hash dedupes; no GitHub fetch
   // for already-seen PRs), so we don't gate on last_sync — we just trust
@@ -72,6 +77,11 @@ export default function Dashboard() {
   // Trace 3 M2/M3: optional AbortSignal threads through to the POST and
   // the post-sync re-fetch so unmount cancels both.
   const syncCtrlRef = useRef<AbortController | null>(null);
+  const showSyncSummary = useCallback((text: string) => {
+    setSyncSummary(text);
+    if (syncSummaryTimerRef.current) clearTimeout(syncSummaryTimerRef.current);
+    syncSummaryTimerRef.current = setTimeout(() => setSyncSummary(null), 4000);
+  }, []);
   const triggerSync = useCallback(async (token: string, signal?: AbortSignal) => {
     if (syncingRef.current) return;
     syncingRef.current = true;
@@ -81,7 +91,7 @@ export default function Dashboard() {
     syncCtrlRef.current = inner;
     const composed = anySignal([inner.signal, signal ?? null]);
     try {
-      await api.triggerSync(token, composed.signal);
+      const syncResp = await api.triggerSync(token, composed.signal);
       // Re-fetch both lists so the UI updates immediately when sync completes.
       const [dueData, allData] = await Promise.all([
         api.listDueConcepts(token, composed.signal),
@@ -90,6 +100,18 @@ export default function Dashboard() {
       setPrs(groupByPR(dueData.due));
       setAllPrs(groupByPR(allData.concepts));
       setCommitGroups(groupByCommit(allData.concepts));
+      // Trace 3 M4: brief confirmation. Use the API's summary so the
+      // user sees what was processed (or "you're up to date" if 0).
+      const s = syncResp.summary;
+      const processed = s.prs_processed + s.commits_processed;
+      const skipped = s.prs_skipped + s.commits_skipped;
+      if (processed > 0) {
+        showSyncSummary(`synced ${processed} new`);
+      } else if (skipped > 0) {
+        showSyncSummary("you're up to date");
+      } else {
+        showSyncSummary("synced");
+      }
     } catch (err) {
       if (isAbortError(err)) return;
       const msg = apiErrorToMessage(err, "dashboard sync");
@@ -99,7 +121,7 @@ export default function Dashboard() {
       setSyncing(false);
       if (syncCtrlRef.current === inner) syncCtrlRef.current = null;
     }
-  }, []);
+  }, [showSyncSummary]);
 
   // Abort in-flight sync on unmount (Trace 3 M2/M3).
   useEffect(() => {
@@ -197,12 +219,17 @@ export default function Dashboard() {
           <span className="text-sm text-ink-dim hidden sm:block">{session.user?.name}</span>
           {session?.accessToken && !USING_MOCK && (
             <div className="flex items-center gap-2">
-              {syncError && (
+              {syncError && !fetchError && (
                 <span
                   className="font-mono text-[11px] text-coral"
                   title={syncError}
                 >
                   sync failed — click to retry
+                </span>
+              )}
+              {syncSummary && !syncError && (
+                <span className="font-mono text-[11px] text-mint">
+                  {syncSummary}
                 </span>
               )}
               <button
