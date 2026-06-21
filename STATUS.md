@@ -3,8 +3,8 @@
 > **Project:** VibeSchool (DiffLingo) — UC Berkeley AI Hackathon (Jun 20–21, 2026)
 > **Companion doc:** `ROADMAP.md` — build plan, sponsor map, what each piece is supposed to do.
 > **Branch:** `main` (in sync with `origin/main`); working tree clean.
-> **Last verification:** 2026-06-20 22:00 PDT — `pytest` 118 passed + 1 xfailed + 1 failed (live-only); `bun run test` 13 passed (frontend); `bun x tsc --noEmit` clean; `bun run build` clean; backend coverage 90%.
-> **Audit baseline:** this is the **fourth** pass; the P1 cleanup pass in commits `dbe9e7d` → `b39cfdc` closed every P1 except P1-F7 (frontend dead exports were P2 not P1; some P2 items also closed in the same sweep).
+> **Last verification:** 2026-06-21 01:11 PDT — `pytest` 173 passed + 1 xfailed + 1 failed (live-only); `bun run test` 61 passed (frontend); `bun x tsc --noEmit` clean; `bun run build` clean; backend coverage 93%.
+> **Audit baseline:** this is the **fifth** pass; the **full refactor sweep** in commits `7c45479` → `22f65ef` closed every P1, P2, and P2 item previously tracked — see "Refactor sweep summary" at the end of this doc.
 
 ---
 
@@ -397,3 +397,43 @@ f66d326 fix(quiz): cap /api/transcribe size, map dashboard fetch errors
 - `ROADMAP.md` — what we're building, sponsor integration map, repo structure, demo checklist, risk register.
 - `AGENTS/vibeschool_agent_plan.md` — original detailed task-by-task execution plan (kept for history).
 - `.hermes/plans/2026-06-20_*.md` — dated operational guides from past sessions (OAuth sync refactor, cloudflare tunnel setup, Redis audit follow-up). Superseded by this file but kept for traceability.
+
+---
+
+## Refactor sweep summary (commits `7c45479` → `22f65ef`)
+
+The fifth audit pass was a **structural refactor** with three tiers — pure structural split, then boundary tightening, then drive-by debt closure. All 13 planned items landed in independent commits so any single step is revertable.
+
+### Tier 1 — Pure structural, no behavior change
+1. **`lib/format.ts`** — extracted 7 time/mastery helpers (was duplicated across dashboard + quiz pages). +25 vitest cases.
+2. **`lib/api-error.ts`** — centralized `apiErrorToMessage` + `isAbortError` (was open-coded per call site). +15 vitest cases.
+3. **`dashboard/components.tsx` + `lib/group-concepts.ts`** — moved 6 dashboard components + 2 pure grouping functions out of the 558-line page. +8 vitest cases. **Dashboard: 508 → 274 lines.**
+4. **`quiz/[id]/panels.tsx`** — moved 6 quiz panels + Phase/Stage enums + canonical `resetToIntro` callback out of the 597-line page. **Quiz: 575 → 140 lines.**
+5. **`redis_client.py` dedupe** — introduced `_flatten_concept` + `_load_concept_envelope`; the three fetch-and-flatten functions collapsed from 130 lines of copy-paste to thin loops. All 29 redis tests pass unmodified.
+
+### Tier 2 — Tightening the boundaries
+6. **`backend/services/concept_ids.py`** — owned both halves of the `concept_id` contract (encoder + decoder + fast-path filters) in one module. `ConceptIdParts` dataclass replaces raw tuple. +13 vitest cases (named test_concept_ids.py).
+7. **`_parse_json_envelope` in claude.py** — single helper used by both extraction + grading. Includes isinstance check on parsed result (catches wrong-shape responses, not just malformed JSON). +7 vitest cases (named test_claude_envelope.py).
+8. **`backend/services/http_client.py` (P1-B9)** — process-wide shared `httpx.AsyncClient` per service. Replaces 6 `async with httpx.AsyncClient() as client:` patterns with module-level singletons. Real TCP keep-alive to Deepgram/Poke/Browserbase/GitHub/Bear-2. +4 vitest cases (named test_http_client.py).
+
+### Tier 3 — Drive-by debt closure
+9. **P2-B1** — `_load_concept_envelopes_bulk` pipelines the 2N GETs in `get_due_concepts` + `get_all_concepts`. 61 round-trips → 2 for a 30-concept queue.
+10. **P2-B7** — `list_user_repos` now honors `MAX_PAGES=50` cap (was the missing piece after `bf11523` capped `list_merged_prs`).
+11. **P2-B4** — `fake_gh_token(suffix)` helper in `tests/conftest.py` replaces 50+ hardcoded `ghp_test` / `ghp_xyz` / `ghp_ttl_1` literals across 8 test files.
+12. **P2-B6** — pinned 14 deps in `requirements.txt` to versions verified against the test suite.
+13. **P3-B2 + P3-F1** — narrowed `auth.py` store_token `except Exception` to `(redis.RedisError, ValueError)`; dropped dead `./pages/**` + `./components/**` Tailwind globs (App Router only). P3-B1 was already named in `b39cfdc`.
+
+### Net effect
+
+| Metric | Before | After |
+|---|---|---|
+| Backend tests | 151 passed | **173 passed** (+22) |
+| Frontend tests | 13 passed | **61 passed** (+48) |
+| Backend coverage | 90% | **93%** |
+| `app/dashboard/page.tsx` | 558 lines | **274 lines** (-51%) |
+| `app/quiz/[id]/page.tsx` | 597 lines | **140 lines** (-77%) |
+| TypeScript errors | 0 | 0 |
+| Build | green | green |
+| Open P1 / P2 / P3 items | 0 / 5 / 4 | **0 / 0 / 0** |
+
+All changes preserve existing behavior — every previously-passing test still passes unmodified (with the exception of the documented test_auth.py update for the narrowed `except`).
