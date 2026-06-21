@@ -286,4 +286,49 @@ describe("QuizPage / failure paths", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(screen.queryByText(/Nothing to review here/i)).not.toBeInTheDocument();
   });
+
+  it("H2: aborts in-flight grading on unmount (signal fires)", async () => {
+    // Slow gradeAnswer so we can unmount mid-flight. The signal passed to
+    // gradeAnswer must be the one that fires when the page unmounts.
+    const user = userEvent.setup();
+    mockGetConcept.mockResolvedValue(concept);
+    mockUseRecorder.mockReturnValue({
+      state: "idle", seconds: 0, levels: new Array(28).fill(0),
+      start: vi.fn(), stop: vi.fn(), reset: vi.fn(),
+    });
+
+    let capturedSignal: AbortSignal | undefined;
+    mockGradeAnswer.mockImplementation(
+      (_req: unknown, _c: unknown, _token: unknown, signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          capturedSignal = signal;
+          // Resolve/reject on the signal: abort → AbortError; else resolve late.
+          signal.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        }),
+    );
+
+    const { unmount } = render(<QuizPage />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Answer out loud/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Prefer to type/i }));
+    await user.type(screen.getByRole("textbox"), "an answer");
+    await user.click(screen.getByRole("button", { name: /Submit answer/i }));
+
+    // Wait until runGrading is mid-flight on gradeAnswer.
+    await waitFor(() => {
+      expect(capturedSignal).toBeDefined();
+    });
+    expect(capturedSignal?.aborted).toBe(false);
+
+    // Unmount mid-grade → the shared AbortController fires.
+    unmount();
+    await waitFor(() => {
+      expect(capturedSignal?.aborted).toBe(true);
+    });
+  });
 });

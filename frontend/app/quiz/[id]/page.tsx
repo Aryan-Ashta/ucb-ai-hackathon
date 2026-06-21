@@ -6,7 +6,7 @@ import { isAbortError } from "@/lib/api-error";
 import { useRecorder } from "@/lib/useRecorder";
 import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MOCK_CONCEPTS } from "@/lib/mock";
 import {
   ActionBar,
@@ -40,9 +40,19 @@ export default function QuizPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
 
+  // H2 (Trace 2): one AbortController shared by the concept fetch AND the
+  // grading pipeline. The mount-effect cleanup aborts it so navigating away
+  // mid-grade cancels the in-flight Deepgram + Claude requests instead of
+  // burning API quota and setState'ing on an unmounted component.
+  const ctrlRef = useRef<AbortController | null>(null);
+
   // Load (or reload, on "Next concept") the concept for this id.
   useEffect(() => {
+    // Abort any in-flight grading from the previous concept before starting
+    // a fresh fetch — keeps the controller lifecycle tied to the id.
+    ctrlRef.current?.abort();
     const ctrl = new AbortController();
+    ctrlRef.current = ctrl;
     setPhase("loading");
     setGrade(null);
     setTranscript("");
@@ -71,14 +81,22 @@ export default function QuizPage() {
     // to grading. Audio answers are transcribed first.
     async (audio: Blob | null, directText?: string) => {
       if (!concept) return;
-      const ctrl = new AbortController();
+      // H2: reuse the page-level controller so unmount can abort us mid-grade.
+      // If the prior controller was already aborted (e.g. navigated during a
+      // previous grade), swap in a fresh one.
+      let ctrl = ctrlRef.current;
+      if (!ctrl || ctrl.signal.aborted) {
+        ctrl = new AbortController();
+        ctrlRef.current = ctrl;
+      }
+      const signal = ctrl.signal;
       setPhase("thinking");
       setErrorMsg(null);
       try {
         let text = directText?.trim() ?? "";
         if (!directText) {
           setStage("transcribing");
-          const r = await transcribeAudio(audio!, session?.accessToken ?? undefined, ctrl.signal);
+          const r = await transcribeAudio(audio!, session?.accessToken ?? undefined, signal);
           if (r.error || !r.transcript.trim()) {
             setErrorMsg(r.error ?? "Couldn't hear that one. Give it another go.");
             setPhase("failed");
@@ -88,7 +106,7 @@ export default function QuizPage() {
         }
         setTranscript(text);
         setStage("grading");
-        const g = await gradeAnswer({ user_id: userId, concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined, ctrl.signal);
+        const g = await gradeAnswer({ user_id: userId, concept_id: concept.id, transcript: text }, concept, session?.accessToken ?? undefined, signal);
         setGrade(g);
         setPhase("result");
         // H1 (Trace 2): fire-and-forget the calendar-event hook after the grade
