@@ -3,6 +3,11 @@ import { defineConfig } from "vitest/config";
 import path from "node:path";
 
 export default defineConfig({
+  // React 17+ automatic JSX runtime — no need to `import React` in test files
+  // or component files (the existing app/ files don't import React either).
+  esbuild: {
+    jsx: "automatic",
+  },
   test: {
     environment: "jsdom",
     globals: true,
@@ -16,11 +21,17 @@ export default defineConfig({
     },
     // The Next.js app directory is mostly JSX/TSX components that need a
     // heavy mock surface to test; we focus tests on lib/ helpers + the
-    // useRecorder hook for now. Add more here as coverage grows.
+    // useRecorder hook + the dashboard components + the quiz panels for now.
+    // Add more here as coverage grows.
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["lib/**", "app/quiz/[id]/*.ts"],
+      include: [
+        "lib/**",
+        "app/quiz/[id]/*.ts",
+        "app/quiz/[id]/*.tsx",
+        "app/dashboard/*.tsx",
+      ],
       exclude: ["lib/mock.ts", "**/*.d.ts"],
     },
   },
