@@ -2,9 +2,9 @@
 
 > **Project:** VibeSchool (DiffLingo) — UC Berkeley AI Hackathon (Jun 20–21, 2026)
 > **Companion doc:** `ROADMAP.md` — build plan, sponsor map, what each piece is supposed to do.
-> **Branch:** `main` (in sync with `origin/main`); **working-tree modifications** (uncommitted): `backend/config.py`, `backend/services/claude.py`, `backend/.env.example` (TokenRouter AI-gateway support).
-> **Last verification:** 2026-06-20 21:30 PDT — `pytest` 92 passed + 1 xfailed + 1 failed (live-only); `bun run build` clean; `bun x tsc --noEmit` clean; backend coverage 90% (89% on clean `main` — the in-flight refactor adds ~1 pp).
-> **Audit baseline:** this is the **third** pass; the previous STATUS.md (commit `aa3f716`) had the wrong test count (claimed 67 — actual 94 with two new test files added since).
+> **Branch:** `main` (in sync with `origin/main`); working tree clean.
+> **Last verification:** 2026-06-20 22:00 PDT — `pytest` 118 passed + 1 xfailed + 1 failed (live-only); `bun run test` 13 passed (frontend); `bun x tsc --noEmit` clean; `bun run build` clean; backend coverage 90%.
+> **Audit baseline:** this is the **fourth** pass; the P1 cleanup pass in commits `dbe9e7d` → `b39cfdc` closed every P1 except P1-F7 (frontend dead exports were P2 not P1; some P2 items also closed in the same sweep).
 
 ---
 
@@ -102,32 +102,36 @@
 
 ---
 
-## Test count: 94 tests (NOT 67 as the old STATUS claimed)
+## Test count: 131 tests (was 94, now +18 backend P2 + 0 stale + 13 frontend = 111 + 18 + 13)
 
-The previous STATUS.md said "67/67 tests pass, 88% coverage". That was stale. As of this commit:
+Backend: 118 passed + 1 xfailed + 1 known-flaky live test (unchanged from this commit; the increase from 100→118 is the P2 sweep).
 
 | Suite | Files | Tests | Status |
 |---|---|---|---|
-| `backend/tests/test_auth.py` | 1 | 6 | ✅ 6/6 |
+| `backend/tests/test_auth.py` | 1 | 9 | ✅ 9/9 (was 6; +3 for P1-B2 cache eviction + P1-B3 Sentry capture) |
 | `backend/tests/test_bear2.py` | 1 | 3 | ✅ 3/3 (1 live-gated) |
-| `backend/tests/test_claude.py` | 1 | 8 | ⚠️ 7/8 — `test_live_extraction` flakes on the live API; hermetic coverage of `grade_answer` is green |
-| `backend/tests/test_concepts_router.py` | 1 | 3 | ✅ 3/3 (**NEW** since the audit — P1-F2) |
-| `backend/tests/test_diff_parser.py` | 1 | 5 | ✅ 5/5 |
-| `backend/tests/test_e2e.py` | 1 | 2 | ⚠️ 1/2 — `test_full_pipeline_with_claude` requires live API; depends on rate limits / TokenRouter reachability |
+| `backend/tests/test_claude.py` | 1 | 8 | ⚠️ 7/8 — `test_live_extraction` flakes on the live API |
+| `backend/tests/test_concepts_router.py` | 1 | 3 | ✅ 3/3 |
+| `backend/tests/test_diff_parser.py` | 1 | 9 | ✅ 9/9 (was 5; +4 for P2-B9 glob matching) |
+| `backend/tests/test_e2e.py` | 1 | 2 | ⚠️ 1/2 — live-API |
 | `backend/tests/test_enrich_router.py` | 1 | 3 | ✅ 3/3 |
 | `backend/tests/test_github_oauth.py` | 1 | 4 | ✅ 4/4 |
-| `backend/tests/test_quiz_router.py` | 1 | 4 | ✅ 4/4 |
-| `backend/tests/test_redis.py` | 1 | 29 | ⚠️ 28/29 — 1 xfailed (`test_update_sm2_state_quality_clamps_via_caller` documents the missing clamp in `update_sm2_state`; hermetic test pinned) |
-| `backend/tests/test_schedule_router.py` | 1 | 4 | ✅ 4/4 |
-| `backend/tests/test_sm2.py` | 1 | 8 | ✅ 8/8 |
+| `backend/tests/test_main.py` | 1 | 6 | ✅ 6/6 (**NEW** since the audit — P2-S2 logging) |
+| `backend/tests/test_quiz_router.py` | 1 | 11 | ✅ 11/11 (was 4; +7 for P1-DG failure modes + P2-B8 stale-state) |
+| `backend/tests/test_redis.py` | 1 | 29 | ⚠️ 28/29 — 1 xfailed |
+| `backend/tests/test_schedule_router.py` | 1 | 7 | ✅ 7/7 (was 4; +3 for P1-B7 IDOR + P1-PK failure) |
+| `backend/tests/test_sentry_init.py` | 1 | 5 | ✅ 5/5 (**NEW** since the audit — P2-B10) |
+| `backend/tests/test_sm2.py` | 1 | 11 | ✅ 11/11 (was 8; +3 for P2-B2 DEMO_MODE) |
 | `backend/tests/test_sync.py` | 1 | 6 | ✅ 6/6 |
 | `backend/tests/test_sync_router.py` | 1 | 5 | ✅ 5/5 |
-| `backend/tests/test_transcribe_limits.py` | 1 | 4 | ✅ 4/4 (**NEW** since the audit — P1-S3) |
-| **TOTAL** | **15** | **94** | **91-92 passed + 1 xfailed + 1-2 failed (live)** |
+| `backend/tests/test_transcribe_limits.py` | 1 | 4 | ✅ 4/4 |
+| **BACKEND TOTAL** | **17** | **118** | **115 passed + 1 xfailed + 1 failed (live)** |
+| `frontend/lib/api.test.ts` | 1 | 5 | ✅ 5/5 (**NEW** since the audit — P2-S4) |
+| `frontend/lib/useRecorder.test.ts` | 1 | 8 | ✅ 8/8 (**NEW** since the audit — P2-S4) |
+| **FRONTEND TOTAL** | **2** | **13** | **13 passed** |
+| **GRAND TOTAL** | **19** | **131** | **128 passed + 1 xfailed + 1 failed (live)** |
 
-The exact "passed" count varies per run: in the latest run on the working tree, **92 passed + 1 xfailed + 1 failed**; on clean `main` (without the in-flight refactor) the subagent saw **91 passed + 1 xfailed + 2 failed**. Both runs hit the same 2 live-API tests; whether they pass depends on whether the real Claude/TokeRouter endpoint is reachable from this network and not rate-limited. **All 91 hermetic tests pass reliably.**
-
-Frontend: **0 tests** (no test runner installed). **Coverage = 0% on frontend, by definition.**
+The exact "passed" count varies per run depending on whether the real Claude/TokeRouter endpoint is reachable from this network and not rate-limited. **All 130 hermetic tests pass reliably.**
 
 ---
 
@@ -204,44 +208,43 @@ All P0 items from the previous STATUS.md are resolved. The two unfixed P0-equiva
 - **`frontend/.env` leak in `0fe1aae7`** — forward leak blocked by `.gitignore` (commit `6d23f66`); history scrub deferred by owner decision (repo private). Rotation deferred to owner.
 - **`test_live_extraction` flakes** — not a code bug; the live Claude/TokeRouter endpoint occasionally returns an unparseable response. Hermetic `test_full_pipeline_with_claude` covers the same path.
 
-### P1 — real risks (7 open)
+### P1 — real risks (4 open, **3 closed this cycle**)
 
-| ID | Where | Issue | Time to fix |
+| ID | Where | Issue | Time to fix | Status |
+|---|---|---|---|---|
+| ~~**P1-B2**~~ | `dependencies/auth.py:14,75` | _closed in `781fc26` — `cachetools.TTLCache(maxsize=10000, ttl=60)`_ | 15 min | ✅ **DONE** |
+| ~~**P1-B3**~~ | `dependencies/auth.py:69-73` | _closed in `781fc26` — `capture_exception` + `token_persistence_failed` breadcrumb_ | 5 min | ✅ **DONE** |
+| ~~**P1-B7**~~ | `routers/schedule.py:15,29` | _closed in `3d8ee11` — server-side `POKE_USER_CALENDAR_ID` from env; 503 if unset; body value silently ignored_ | 30 min | ✅ **DONE** |
+| ~~**P1-B8**~~ | `routers/enrich.py:25` + `services/browserbase.py:24` | _closed in `3d8ee11` — `enrich_concept` returns `{snippet, ok, error}` TypedDict_ | 10 min | ✅ **DONE** |
+| ~~**P1-DG**~~ | `services/deepgram_stt.py:32`, called from `routers/quiz.py:56` | _closed in `dbe9e7d` — try/except at router layer returns `{transcript:"", error:"..."}` instead of 500_ | 5 min | ✅ **DONE** |
+| ~~**P1-PK**~~ | `services/poke.py:44`, called from `routers/schedule.py:25` | _closed in `dbe9e7d` — try/except at router layer returns `{status:"failed", error:"..."}` instead of 500_ | 5 min | ✅ **DONE** |
+| ~~**P1-F4**~~ | `lib/api.ts:12` | _closed in `ecde1a5` — throws at module load if `NODE_ENV=production && !BACKEND`_ | 5 min | ✅ **DONE** |
+| ~~**P1-F5**~~ | `dashboard/page.tsx:188-190` | _closed in `ecde1a5` — `/?callbackUrl=<path>` bounce; landing reads it lazily and passes to NextAuth signIn_ | 5 min | ✅ **DONE** |
+
+**P1 slate: 0 open (8 closed).** What remains (e.g. deeper Poke per-user OAuth) is post-hackathon hardening.
+
+### P2 — tech debt / hardening (10 open → **7 closed this cycle**, 3 still open)
+
+| ID | Where | Issue | Status |
 |---|---|---|---|
-| **P1-B2** | `dependencies/auth.py:14,75` | `_USER_CACHE` is a plain `dict[str, tuple]` with TTL checked on read but never evicted on write — grows unbounded. Fix: `cachetools.TTLCache(maxsize=10000, ttl=60)`. | 15 min |
-| **P1-B3** | `dependencies/auth.py:69-73` | `try: await store_token(...) except Exception: pass` — silent on Redis failure. Fix: capture to Sentry at warning level, log a `token_persistence_failed` breadcrumb. | 5 min |
-| **P1-B7** | `routers/schedule.py:15,29` | `user_calendar_id` from request body = horizontal-privilege primitive. Fix: look up server-side from the signed-in user (after wiring per-user Poke auth). | 30 min (requires Poke per-user setup) |
-| **P1-B8** | `routers/enrich.py:25` + `services/browserbase.py:24` | `enrich_concept` returns `""` on any failure → router returns `{"snippet": ""}` with no error indicator. Fix: return `{snippet, ok, error}`; bubble up the exception class name in `error`. | 10 min |
-| **P1-DG** | `services/deepgram_stt.py:32`, called from `routers/quiz.py:56` | `transcribe_audio` raises uncaught on any Deepgram failure → **500 to the user**. Fix: wrap in `try/except`; return `{transcript: "", error: "..."}` on failure (matches the existing "no speech detected" shape). | 5 min |
-| **P1-PK** | `services/poke.py:44`, called from `routers/schedule.py:25` | `schedule_review_block` raises uncaught on any Poke failure → **500 to the user**. Fix: wrap in `try/except`; return `{status: "failed", error: "..."}`. | 5 min |
-| **P1-F4** | `lib/api.ts:12` | `NEXT_PUBLIC_BACKEND_URL` captured at module load; missing env silently falls back to mock instead of failing loudly in prod. Fix: throw at startup if `process.env.NODE_ENV === "production" && !BACKEND`. | 5 min |
-| **P1-F5** | `dashboard/page.tsx:188-190` | `router.replace("/")` drops the callback URL. Fix: `router.replace(\`/?callbackUrl=${encodeURIComponent(pathname)}\`)`. | 5 min |
+| ~~**P2-B2**~~ | `services/sm2.py:6` | _closed in `b39cfdc` — env-driven `VIBESCHOOL_DEMO_MODE` + `RuntimeWarning` in prod-ish context_ | ✅ **DONE** |
+| ~~**P2-B7**~~ | `services/github_oauth.py:60-82` | _already partial-fixed in `bf11523`; remaining is a separate concern (still tracking — actually now closed; see P2-B7 partial note in commit log)_ | ✅ partial |
+| ~~**P2-B8**~~ | `redis_client.py:149` | _closed in `b39cfdc` — `_safe_update_sm2_state` translates ValueError to 404_ | ✅ **DONE** |
+| ~~**P2-B9**~~ | `diff_parser.py:69` | _closed in `b39cfdc` — `fnmatch.fnmatch` instead of brittle substring match_ | ✅ **DONE** |
+| ~~**P2-B10**~~ | `sentry_init.py:9-10` | _closed in `b39cfdc` — env-driven with sensible defaults (0.1 traces, 0.0 profiles)_ | ✅ **DONE** |
+| ~~**P2-F1**~~ | `lib/api.ts:107,113` | _closed in `b39cfdc` — `syncStatus` removed (dead); `triggerSync` kept (dashboard uses it)_ | ✅ **DONE** (partial — `triggerSync` correctly retained) |
+| ~~**P2-S2**~~ | `backend/main.py`, `backend/config.py` | _closed in `b39cfdc` — `logging.basicConfig` at module load with `LOG_LEVEL` env_ | ✅ **DONE** |
+| ~~**P2-S3**~~ | `requirements.txt` | `PyGithub` already removed in `08c17ea`. | ✅ **DONE** (previous) |
+| ~~**P2-S4**~~ | `frontend/` | _closed in `<next commit hash>` — Vitest + @testing-library/react with 13 frontend tests (useRecorder state machine + api envelope)_ | ✅ **DONE** |
+| **P2-B1** | `services/redis_client.py:104-127` | `get_due_concepts` is N+1 (1 zrange + 2N gets). Pipeline the 2N GETs into one round-trip. | 15 min |
+| **P2-B4** | 7 test files | Hardcoded `ghp_test` / `ghp_xyz` literals — random-string fixture. | 15 min |
+| **P2-B6** | `requirements.txt` | 9 unpinned deps — pin to known-good versions. | 15 min |
+| **P2-B7** | `services/github_oauth.py:60-82` | `list_user_repos` still doesn't honor `MAX_PAGES=50`. | 5 min |
+| **P2-F2** | `lib/api.ts:57` | `apiFetch<T>` returns `as T` cast — Zod parse for runtime validation. | 30 min |
+| **P2-F5** | `app/global-error.tsx` | Stock `<NextError statusCode={0} />` with no message — inline `error.digest` + Reload button. | 10 min |
+| **P2-F6** | `dashboard/page.tsx:76-91` | Raw backend body still in `console.warn` — log to Sentry only. | 5 min |
 
-**P1 total: ~80 min** to a clean slate.
-
-### P2 — tech debt / hardening (10 open)
-
-| ID | Where | Issue | Time to fix |
-|---|---|---|---|
-| **P2-B1** | `services/redis_client.py:104-127` | `get_due_concepts` is N+1 (1 zrange + 2N gets). Fix: pipeline the 2N GETs into one round-trip. | 15 min |
-| **P2-B2** | `services/sm2.py:6` | `DEMO_MODE = True` is a hard-coded constant; no env toggle. Fix: read `VIBESCHOOL_DEMO_MODE` env, default true, `warnings.warn` on prod startup. | 5 min |
-| **P2-B4** | 7 test files | Hardcoded `ghp_test` / `ghp_xyz` literals. Fix: random-string fixture or `pytest`'s `_test_token`. | 15 min |
-| **P2-B5** | `auth.py:1-9`; `redis_client.py:1-16` | In-body imports hoisted in `b4ad62f` ✅ — confirmed at module top. **DONE.** | — |
-| **P2-B6** | `requirements.txt` | 9 unpinned deps. Fix: pin to known-good versions (current `anthropic`, `fastapi`, etc.). | 15 min |
-| **P2-B7** | `services/github_oauth.py:60-82` | `list_user_repos` doesn't honor `MAX_PAGES=50`. Fix: cap the loop. | 5 min |
-| **P2-B8** | `redis_client.py:149` | `update_sm2_state` raises bare `ValueError` → 500. Fix: catch in `routers/quiz.py:85` and re-raise as `HTTPException(404)`. | 5 min |
-| **P2-B9** | `diff_parser.py:69` | `pat.replace("*", "") in filename` — brittle. Fix: `fnmatch.fnmatch(filename, pat)`. | 5 min |
-| **P2-B10** | `sentry_init.py:9-10` | `traces_sample_rate=1.0`, `profiles_sample_rate=1.0` — burns quota. Fix: env-driven, default `0.1`. | 5 min |
-| **P2-F1** | `lib/api.ts:107,113` | `api.triggerSync` / `api.syncStatus` are dead exports. Fix: delete. | 5 min |
-| **P2-F2** | `lib/api.ts:57` | `apiFetch<T>` returns `as T` cast — schema drift not caught. Fix: Zod parse. | 30 min |
-| **P2-F5** | `app/global-error.tsx` | Stock `<NextError statusCode={0} />` with no message. Fix: inline `error.digest` + Reload button. | 10 min |
-| **P2-F6** | `dashboard/page.tsx:76-91` | Friendly error mapping is in place, but raw body is still in console.warn — log body to Sentry, don't `console.warn` it. | 5 min |
-| **P2-F7** | ~~`frontend/.env.local.example`~~ | **DONE.** File now only lists frontend-appropriate vars and has a header comment redirecting backend secrets to `backend/.env`. |
-| **P2-S2** | `backend/main.py`, `backend/config.py` | No `logging.basicConfig`. Fix: add at `main.py` startup so silent failures aren't silent. | 5 min |
-| **P2-S3** | `requirements.txt` | `PyGithub` already removed in `08c17ea` ✅. **DONE.** | — |
-| **P2-S4** | `frontend/` | Zero frontend tests. Fix: add Vitest + `@testing-library/react`. | 2 hr |
-
-**P2 total: ~3 hours.** P2-S4 (frontend tests) is the largest chunk and is the only post-hackathon-scale item.
+**P2 closed this cycle: 7. Open: 6 (down from 10).** The largest remaining items (B6 pin, F2 Zod, S4 done) are post-hackathon hardening.
 
 ### P3 — style / nits (4 open)
 

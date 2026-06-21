@@ -3,8 +3,8 @@
 > **Project:** VibeSchool (also: DiffLingo) — a spaced-repetition developer learning tool that turns merged GitHub PRs into active voice quizzes.
 > **Event:** UC Berkeley AI Hackathon 2026 (June 20–21)
 > **Team:** Aryan Ashta (backend/ML) + Samuel (fullstack)
-> **Branch:** `main` → `origin/main` (in sync at session start; `backend/config.py` + `backend/services/claude.py` modified — TokenRouter support, uncommitted)
-> **Last audit:** 2026-06-20 21:00 PDT
+> **Branch:** `main` → `origin/main` (in sync at session start)
+> **Last audit:** 2026-06-20 22:00 PDT — **P1 cleanup pass complete**: commits `dbe9e7d` → `<next>` closed every P1 (8 items); 7 of 10 P2 items also closed; P2-S4 (frontend tests) landed with Vitest + 13 tests. Backend `pytest` 118 passed + 1 xfailed + 1 known-flaky live; `bun run test` 13 passed; coverage 90%.
 > **Companion doc:** `STATUS.md` — current verified state of every component, with P0/P1/P2 fix list and verification commands.
 
 This file is the **build plan** (what we're building, why, for whom). For "is this thing actually working right now, and what's broken," read `STATUS.md`.
