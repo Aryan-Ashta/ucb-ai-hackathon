@@ -9,6 +9,14 @@ from backend.services.redis_client import get_quiz_content, update_sm2_state
 
 router = APIRouter()
 
+# --- /api/transcribe limits -------------------------------------------------
+# Cap body size so a runaway client can't push a huge file at a Deepgram-billed
+# endpoint (P1-S3 in STATUS.md). Whitelist content-types because the route
+# forwards `audio.content_type` to Deepgram and unknown types would just be
+# rejected upstream — fail fast with a clear error instead.
+MAX_AUDIO_BYTES: int = 10 * 1024 * 1024  # 10 MB
+ALLOWED_MIME_TYPES: set[str] = {"audio/webm", "audio/wav", "audio/mpeg", "audio/ogg"}
+
 
 @router.post("/transcribe")
 async def transcribe(
@@ -18,13 +26,28 @@ async def transcribe(
     """
     Accept audio/webm from a browser MediaRecorder, return the transcript.
 
-    Auth-gated: requires `Authorization: Bearer <github_access_token>`.
+    Auth-gated: requires `Authorization: Bearer <githu...n>`.
     The signed-in user is resolved by `get_current_user` but the endpoint
     itself does not need `user["id"]` (transcription is per-request, not
     per-user); the dependency exists so unauthenticated callers cannot
     burn the Deepgram API key.
     """
+    if audio.content_type and audio.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                f"Unsupported audio format: {audio.content_type}. "
+                "Use webm, wav, mp3, or ogg."
+            ),
+        )
+
     audio_bytes = await audio.read()
+
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio file too large (max {MAX_AUDIO_BYTES // (1024 * 1024)} MB)",
+        )
 
     if len(audio_bytes) == 0:
         raise HTTPException(status_code=400, detail="Empty audio file")
