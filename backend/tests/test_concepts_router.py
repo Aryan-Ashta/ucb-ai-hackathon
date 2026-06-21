@@ -39,34 +39,44 @@ def test_get_concept_by_id_requires_auth():
     assert r.status_code == 401
 
 
-def test_get_concept_by_id_returns_concept_when_found(fake_redis, monkeypatch):
-    fake_quiz = {
-        "concept": "Memoization",
-        "roast_text": "You're caching results like a squirrel hoards nuts.",
-        "question_text": "What does memoization do?",
-        "answer_hint": "cache, lookup, repeated",
-    }
+async def test_get_concept_by_id_returns_concept_when_found(fake_redis):
+    """Verify the real get_quiz_content path returns the flattened Concept shape."""
+    from backend.models import QuizConcept
+    from backend.services.redis_client import cache_quiz_content
 
-    async def fake_get_quiz_content(user_id, concept_id):
-        # Verify the handler passed the signed-in user's id, NOT anything
-        # pulled off the URL — guards against cross-user reads.
-        assert user_id == "99"
-        assert concept_id == "abc:1:memoization"
-        return fake_quiz
-
-    from backend.routers import concepts as concepts_router
-    monkeypatch.setattr(concepts_router, "get_quiz_content", fake_get_quiz_content)
+    concept = QuizConcept(
+        concept_id="99:1:memoization",
+        concept="Memoization",
+        roast_text="You're caching results like a squirrel hoards nuts.",
+        question_text="What does memoization do?",
+        answer_hint="cache, lookup, repeated",
+        repo="alice/repo",
+        pr_title="Add caching layer",
+    )
+    await cache_quiz_content("99", concept)
 
     _override_user({"id": "99", "login": "alice", "token": "ghp_test"})
     client = TestClient(app)
     r = client.get(
-        "/api/concepts/abc:1:memoization",
+        "/api/concepts/99:1:memoization",
         headers={"Authorization": "Bearer x"},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["user_id"] == "99"
-    assert body["concept"] == fake_quiz
+    c = body["concept"]
+    # Verify the flattened frontend-compatible Concept shape
+    assert c["id"] == "99:1:memoization"
+    assert c["concept"] == "Memoization"
+    assert c["repo"] == "alice/repo"
+    assert c["pr_title"] == "Add caching layer"
+    assert c["pr_number"] == 1
+    assert isinstance(c["next_review"], str) and "T" in c["next_review"]  # ISO string
+    assert isinstance(c["ease_factor"], float)
+    assert isinstance(c["interval"], int)
+    assert isinstance(c["repetitions"], int)
+    assert "concept_id" not in c, "legacy concept_id key must not leak to frontend"
+    assert "state" not in c, "nested state must not leak to frontend"
 
 
 def test_get_concept_by_id_404_when_missing(fake_redis, monkeypatch):

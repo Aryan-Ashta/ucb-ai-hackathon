@@ -1,5 +1,13 @@
 # VibeSchool — Redis Audit Follow-up Plan
 
+> **⚠️ SUPERSEDED — see [`STATUS.md`](../../STATUS.md).**
+>
+> Redis-specific follow-up plan from June 20, 2026 evening. P0-1 is the only item that landed (implicitly, via improved error handling); P1-2, P1-4, P2-1 are still open and are tracked in `STATUS.md` "Open findings" (P2-B1, P2-B7). The P1-3 quality-clamp xfail is still xfail as of this writing.
+>
+> Kept for audit trail only.
+
+---
+
 > **For Hermes:** This is the execution plan for closing the remaining open gaps
 > from `AGENTS/vibeschool_audit_issues.md` and the gap analysis in
 > `AGENTS/vibeschool_redis_gap_analysis.md` (TODO: link to the research subagent's

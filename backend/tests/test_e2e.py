@@ -56,7 +56,7 @@ async def test_review_loop_hermetic():
 
     # After a passing grade the concept is no longer overdue.
     due_after = await get_due_concepts(user_id)
-    assert all(item["concept_id"] != cid for item in due_after), (
+    assert all(item["id"] != cid for item in due_after), (
         "Concept should leave the due set after a passing grade"
     )
 

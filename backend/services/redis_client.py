@@ -1,5 +1,6 @@
 import json
 import time
+from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
 import sentry_sdk
@@ -75,6 +76,8 @@ async def cache_quiz_content(user_id: str, concept: QuizConcept) -> None:
         "roast_text": concept.roast_text,
         "question_text": concept.question_text,
         "answer_hint": concept.answer_hint,
+        "repo": concept.repo,
+        "pr_title": concept.pr_title,
     }
 
     now = int(time.time())
@@ -102,7 +105,13 @@ async def cache_quiz_content(user_id: str, concept: QuizConcept) -> None:
 
 
 async def get_due_concepts(user_id: str) -> list[dict]:
-    """Return all concepts due for review, sorted by urgency."""
+    """Return all concepts due for review, sorted by urgency.
+
+    Returns items shaped to match the frontend Concept type:
+      id, concept, roast_text, question_text, answer_hint,
+      next_review (ISO string), interval, ease_factor, repetitions,
+      pr_number, repo, pr_title.
+    """
     r = await get_redis()
     due_key = f"due:{user_id}"
     now = int(time.time())
@@ -113,26 +122,73 @@ async def get_due_concepts(user_id: str) -> list[dict]:
     for concept_id in due_concept_ids:
         quiz_key = f"concept:{user_id}:{concept_id}:quiz"
         state_key = f"concept:{user_id}:{concept_id}:state"
-        quiz_data = await r.get(quiz_key)
-        state_data = await r.get(state_key)
-        if quiz_data and state_data:
-            result.append(
-                {
-                    "concept_id": concept_id,
-                    **json.loads(quiz_data),
-                    "state": json.loads(state_data),
-                }
-            )
+        quiz_raw = await r.get(quiz_key)
+        state_raw = await r.get(state_key)
+        if not quiz_raw or not state_raw:
+            continue
+        quiz = json.loads(quiz_raw)
+        state = json.loads(state_raw)
+
+        # concept_id format: "{user_id}:{pr_number}:{slug}"
+        parts = concept_id.split(":")
+        pr_number = int(parts[1]) if len(parts) >= 3 and parts[1].isdigit() else 0
+
+        result.append({
+            "id": concept_id,
+            "concept": quiz["concept"],
+            "roast_text": quiz["roast_text"],
+            "question_text": quiz["question_text"],
+            "answer_hint": quiz["answer_hint"],
+            "repo": quiz.get("repo", ""),
+            "pr_title": quiz.get("pr_title", ""),
+            "pr_number": pr_number,
+            # Flatten SM-2 state; convert next_review unix ts → ISO string
+            "ease_factor": state["ease_factor"],
+            "interval": state["interval"],
+            "repetitions": state["repetitions"],
+            "next_review": datetime.fromtimestamp(
+                state["next_review"], tz=timezone.utc
+            ).isoformat(),
+        })
 
     return result
 
 
 async def get_quiz_content(user_id: str, concept_id: str) -> dict | None:
-    """Fetch pre-cached quiz content for a concept. Used in quiz hot path."""
+    """Fetch pre-cached quiz content for a concept. Used in quiz hot path.
+
+    Returns the same flattened shape as get_due_concepts so the frontend
+    Concept type is satisfied on both the dashboard and the quiz page.
+    """
     r = await get_redis()
     quiz_key = f"concept:{user_id}:{concept_id}:quiz"
-    data = await r.get(quiz_key)
-    return json.loads(data) if data else None
+    state_key = f"concept:{user_id}:{concept_id}:state"
+    quiz_raw = await r.get(quiz_key)
+    if not quiz_raw:
+        return None
+    quiz = json.loads(quiz_raw)
+    state_raw = await r.get(state_key)
+    state = json.loads(state_raw) if state_raw else {"ease_factor": 2.5, "interval": 1, "repetitions": 0, "next_review": int(time.time())}
+
+    parts = concept_id.split(":")
+    pr_number = int(parts[1]) if len(parts) >= 3 and parts[1].isdigit() else 0
+
+    return {
+        "id": concept_id,
+        "concept": quiz["concept"],
+        "roast_text": quiz["roast_text"],
+        "question_text": quiz["question_text"],
+        "answer_hint": quiz["answer_hint"],
+        "repo": quiz.get("repo", ""),
+        "pr_title": quiz.get("pr_title", ""),
+        "pr_number": pr_number,
+        "ease_factor": state["ease_factor"],
+        "interval": state["interval"],
+        "repetitions": state["repetitions"],
+        "next_review": datetime.fromtimestamp(
+            state["next_review"], tz=timezone.utc
+        ).isoformat(),
+    }
 
 
 async def update_sm2_state(user_id: str, concept_id: str, quality: int) -> int:

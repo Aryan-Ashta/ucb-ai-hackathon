@@ -35,7 +35,7 @@ async def test_sync_user_prs_processes_new_prs(monkeypatch, fake_redis):
 
     extract_calls = []
 
-    async def fake_extract(raw_diff, user_id, pr_number):
+    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title=""):
         extract_calls.append((user_id, pr_number))
         return []  # empty is fine; we only assert the call happened
 
@@ -77,7 +77,7 @@ async def test_sync_user_prs_skips_already_processed(monkeypatch, fake_redis):
 
     extract_calls = []
 
-    async def fake_extract(raw_diff, user_id, pr_number):
+    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title=""):
         extract_calls.append(pr_number)
         return []
 
@@ -110,7 +110,7 @@ async def test_sync_user_prs_skips_empty_diff(monkeypatch, fake_redis):
 
     extract_calls = []
 
-    async def fake_extract(raw_diff, user_id, pr_number):
+    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title=""):
         extract_calls.append(pr_number)
         return []
 

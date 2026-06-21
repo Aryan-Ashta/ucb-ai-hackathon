@@ -1,5 +1,13 @@
 # VibeSchool — Repository Audit & Issue Tracker
 
+> **⚠️ SUPERSEDED — see [`STATUS.md`](../../STATUS.md) and [`ROADMAP.md`](../../ROADMAP.md).**
+>
+> This is the **first-pass audit from June 20, 2026 morning**. Almost every P0 issue listed here is now fixed (see `STATUS.md` "Findings — FIXED Since Last Audit" and "Open findings" sections). The current state of every component is in `STATUS.md`. The current build plan is in `ROADMAP.md`.
+>
+> Kept for audit trail only.
+
+---
+
 > **Snapshot date:** 2026-06-20
 > **Scope:** `backend/` (FastAPI + Redis) and `frontend/` (Next.js 14 App Router)
 > **Branch state:** `main` clean, on `origin/main`. Three historical branches in

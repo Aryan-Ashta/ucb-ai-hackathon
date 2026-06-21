@@ -1,5 +1,10 @@
 # VibeSchool — Hackathon Build Roadmap
-> UC Berkeley AI Hackathon 2026 | June 20–21 | Team: Aryan (backend/ML) + Samuel (fullstack)
+
+> **⚠️ SUPERSEDED — see [`ROADMAP.md`](../../ROADMAP.md).**
+>
+> Original hackathon build plan from before the project had running code. Content consolidated into the top-level `ROADMAP.md`. The sponsor integration map, latency architecture, tech stack, and per-phase task list are all in `ROADMAP.md`. The Devpost sponsor blurbs at the bottom of this file are still useful copy-paste material for `B3: Devpost writeup`.
+>
+> Kept for historical reference.
 
 ---
 

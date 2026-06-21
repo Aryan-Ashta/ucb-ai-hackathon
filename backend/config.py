@@ -27,6 +27,18 @@ ANTHROPIC_API_KEY = _require("ANTHROPIC_API_KEY")
 TOKEN_COMPANY_API_KEY = _require("TOKEN_COMPANY_API_KEY")
 DEEPGRAM_API_KEY = _require("DEEPGRAM_API_KEY")
 
+# ── AI gateway (TokenRouter) ────────────────────────────────────────────────
+# Set USE_TOKENROUTER=true to route all Claude calls through tokenrouter.com
+# instead of api.anthropic.com. The Anthropic Python SDK is pointed at
+# tokenrouter's Anthropic-compatible endpoint (https://api.tokenrouter.com);
+# the SDK auto-appends /v1/messages to base_url. Set ANTHROPIC_MODEL if
+# tokenrouter expects a prefixed name (e.g. "anthropic/claude-sonnet-4-6").
+# Leave USE_TOKENROUTER unset/false to use direct Anthropic (default).
+USE_TOKENROUTER = os.environ.get("USE_TOKENROUTER", "").lower() in ("1", "true", "yes")
+TOKENROUTER_BASE_URL = os.environ.get("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com")
+TOKENROUTER_API_KEY = os.environ.get("TOKENROUTER_API_KEY", "")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
 # ── Redis Cloud ───────────────────────────────────────────────────────────
 # Redis Cloud → your database → "Connect" gives you four things:
 #   • a public endpoint    → REDIS_HOST + REDIS_PORT

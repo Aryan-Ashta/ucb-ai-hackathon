@@ -4,14 +4,23 @@ import re
 import anthropic
 import sentry_sdk
 
-from backend.config import ANTHROPIC_API_KEY
+import backend.config as config
 from backend.models import QuizConcept
 from backend.services.bear2 import compress_diff
 from backend.services.redis_client import cache_quiz_content
 
-client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+# Client construction is conditional on USE_TOKENROUTER (see backend/config.py):
+#   • USE_TOKENROUTER unset/false → direct Anthropic (api.anthropic.com)
+#   • USE_TOKENROUTER=true        → tokenrouter.com (Anthropic-compatible proxy)
+# The SDK auto-appends /v1/messages to base_url, so we pass the bare origin.
+client = anthropic.AsyncAnthropic(
+    api_key=config.TOKENROUTER_API_KEY if config.USE_TOKENROUTER else config.ANTHROPIC_API_KEY,
+    base_url=config.TOKENROUTER_BASE_URL if config.USE_TOKENROUTER else None,
+)
 
-MODEL = "claude-sonnet-4-6"
+# Model name is env-overridable so tokenrouter-prefixed names (e.g.
+# "anthropic/claude-sonnet-4-6") can be set without touching code.
+MODEL = config.ANTHROPIC_MODEL
 
 SYSTEM_PROMPT = """You are VibeSchool, a savage but educational code reviewer.
 Given a GitHub PR diff, you:
@@ -46,7 +55,8 @@ def _strip_fences(text: str) -> str:
 
 
 async def extract_concepts_and_cache(
-    raw_diff: str, user_id: str, pr_number: int
+    raw_diff: str, user_id: str, pr_number: int,
+    repo: str = "", pr_title: str = "",
 ) -> list[QuizConcept]:
     """
     Full ingestion pipeline:
@@ -97,6 +107,8 @@ async def extract_concepts_and_cache(
                     roast_text=item["roast_text"],
                     question_text=item["question_text"],
                     answer_hint=item["answer_hint"],
+                    repo=repo,
+                    pr_title=pr_title,
                 )
             )
 

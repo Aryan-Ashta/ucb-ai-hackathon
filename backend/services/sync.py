@@ -106,7 +106,10 @@ async def sync_user_prs(access_token: str, user_id: str) -> dict:
                             )
                             summary["prs_skipped"] += 1
                             continue
-                        await extract_concepts_and_cache(cleaned, user_id, pr["number"])
+                        await extract_concepts_and_cache(
+                            cleaned, user_id, pr["number"],
+                            repo=full_name, pr_title=pr.get("title", ""),
+                        )
                         await mark_pr_processed(
                             user_id, repo=full_name,
                             pr_number=pr["number"], merged_at=pr["merged_at"],

@@ -1,5 +1,13 @@
 # VibeSchool — Demo Readiness Plan
 
+> **⚠️ SUPERSEDED — see [`STATUS.md`](../../STATUS.md) and [`ROADMAP.md`](../../ROADMAP.md).**
+>
+> This is the demo-prep plan from June 20, 2026 afternoon. Both blockers it calls out (dashboard using `MOCK_PRS`, `/quiz/[id]` returning 404) are fixed in current `main` (`STATUS.md` "What works end-to-end"). The current demo checklist is in `ROADMAP.md` → "Demo checklist (live, on a developer's laptop)".
+>
+> Kept for audit trail only.
+
+---
+
 > **For Hermes:** Execute in numbered order. P0 tasks block P1 tasks; P1 blocks P2. Every task has a one-line verify command that proves it worked.
 >
 > **Goal:** Take VibeSchool from "code-complete but disconnected" to "live demo working end-to-end on a developer laptop" in roughly 2 hours of focused work. The deployment model is **fully local**: backend on `localhost:8000` (uvicorn), frontend on `localhost:3000` (`bun dev`). There is no Vercel, Render, or any cloud-hosted runtime.
