@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getMockPRs } from "@/lib/mock";
-import { api, USING_MOCK } from "@/lib/api";
+import { api, USING_MOCK, ApiError } from "@/lib/api";
 import { apiErrorToMessage, isAbortError } from "@/lib/api-error";
 import { getDueStatus } from "@/lib/format";
 import { type PR, type CommitGroup, groupByPR, groupByCommit } from "@/lib/group-concepts";
@@ -103,6 +103,15 @@ export default function Dashboard() {
       })
       .catch((err) => {
         if (isAbortError(err)) return;
+        // P2-D1 (Trace H1): an expired-token 401 used to leave the user
+        // stranded on a broken dashboard. Now we bounce them back to
+        // sign-in via signOut() rather than just rendering a banner.
+        // Use signOut (not router.replace) so the next session starts
+        // with a clean cookie + NextAuth JWT state.
+        if (err instanceof ApiError && err.status === 401) {
+          void signOut({ callbackUrl: "/" });
+          return;
+        }
         setFetchError(friendlyFetchError(err));
       })
       .finally(() => setFetching(false));

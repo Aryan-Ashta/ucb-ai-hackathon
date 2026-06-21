@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ─── Module mocks (must come before any component import) ──────────────
 
 const mockReplace = vi.fn();
+const mockSignOut = vi.fn();
 const mockListDueConcepts = vi.fn();
 const mockListAllConcepts = vi.fn();
 const mockTriggerSync = vi.fn();
@@ -23,7 +24,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("next-auth/react", () => ({
   useSession: vi.fn(),
-  signOut: vi.fn(),
+  signOut: (...args: unknown[]) => mockSignOut(...args),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -44,6 +45,7 @@ vi.mock("@/lib/api", () => ({
 // Imports below MUST come after vi.mock calls so the mocked modules
 // are what the dashboard pulls in.
 import { useSession } from "next-auth/react";
+import { ApiError } from "@/lib/api";
 import Dashboard from "./page";
 import type { Concept } from "@/lib/types";
 
@@ -170,6 +172,24 @@ describe("Dashboard / authenticated, fetch results", () => {
     await waitFor(() => {
       expect(screen.getByText(/failed to load concepts/i)).toBeInTheDocument();
     });
+  });
+
+  it("calls signOut({ callbackUrl: '/' }) when listDueConcepts returns 401", async () => {
+    // P2-D1 (Trace H1): an expired-token 401 used to strand the user on
+    // a broken dashboard. Now the dashboard bounces them back to "/"
+    // via signOut so the next session starts clean.
+    mockListDueConcepts.mockRejectedValue(
+      new ApiError(401, "", "API 401 on GET /api/concepts"),
+    );
+    mockListAllConcepts.mockResolvedValue({ user_id: "u_1", concepts: [], count: 0 });
+
+    render(<Dashboard />);
+
+    await waitFor(() => {
+      expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: "/" });
+    });
+    // The fetch error banner should NOT render — we're navigating away.
+    expect(screen.queryByText(/failed to load concepts/i)).not.toBeInTheDocument();
   });
 
   it("auto-triggers sync when there are no due concepts on first load", async () => {
