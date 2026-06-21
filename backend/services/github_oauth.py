@@ -16,6 +16,12 @@ import sentry_sdk
 from backend.config import GITHUB_API_BASE
 
 
+# Safety cap on pagination for a single repo: 50 pages × 100/page = 5,000 PRs.
+# Without `since_iso` there is no early-exit on the sorted-desc-by-updated
+# ordering, so the loop would otherwise walk every page the API returns.
+MAX_PAGES = 50
+
+
 def _headers(token: str) -> dict:
     return {
         "Authorization": f"Bearer {token}",
@@ -77,17 +83,25 @@ async def list_user_repos(token: str) -> list[dict]:
 
 
 async def list_merged_prs(
-    token: str, repo_full_name: str, *, since_iso: str
+    token: str, repo_full_name: str, *, since_iso: str | None = None
 ) -> list[dict]:
     """
-    All merged PRs in this repo with `merged_at >= since_iso`, regardless of
-    who authored them. Sorted descending by `updated` so callers can stop
-    early when they hit the watermark.
+    All merged PRs in this repo, regardless of who authored them.
+
+    If `since_iso` is provided, results are filtered to `merged_at >= since_iso`
+    and pagination stops early (results are sorted descending by `updated`, so
+    the first older-than-since PR marks the end). If `since_iso` is None, every
+    merged PR in the repo is returned — capped at `MAX_PAGES` requests as a
+    safety bound against a user with thousands of merged PRs.
     """
-    since_ts = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
+    since_ts = (
+        datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
+        if since_iso is not None
+        else None
+    )
     out: list[dict] = []
     page = 1
-    while True:
+    while page <= MAX_PAGES:
         r = await _request(
             token,
             f"{GITHUB_API_BASE}/repos/{repo_full_name}/pulls",
@@ -105,11 +119,15 @@ async def list_merged_prs(
         for pr in batch:
             if not pr.get("merged_at"):
                 continue
-            merged_ts = datetime.fromisoformat(pr["merged_at"].replace("Z", "+00:00"))
-            if merged_ts < since_ts:
-                return out  # sorted desc by updated; can stop here
+            if since_ts is not None:
+                merged_ts = datetime.fromisoformat(
+                    pr["merged_at"].replace("Z", "+00:00")
+                )
+                if merged_ts < since_ts:
+                    return out  # sorted desc by updated; can stop here
             out.append(pr)
         page += 1
+    return out
 
 
 async def fetch_pr_diff(token: str, repo_full_name: str, pr_number: int) -> str:

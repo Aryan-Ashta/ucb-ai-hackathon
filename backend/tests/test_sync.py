@@ -155,3 +155,58 @@ async def test_sync_user_prs_records_per_repo_errors(monkeypatch, fake_redis):
     summary = await sync_mod.sync_user_prs("ghp_test", "u1")
     assert summary["repos_seen"] == 2
     assert any("a/b" in e for e in summary["errors"])
+
+
+@pytest.mark.asyncio
+async def test_sync_user_prs_passes_no_since_to_list_merged_prs(monkeypatch, fake_redis):
+    """
+    Full-history mode: a fresh sync must call list_merged_prs with
+    since_iso=None so the GitHub client returns the entire merged-PR history
+    (capped at MAX_PAGES). The per-PR hash at user:{user_id}:prs is the only
+    idempotency mechanism, so passing since=None is safe correctness-wise.
+    """
+    from backend.services import github_oauth
+
+    async def _fake_list_repos(token):
+        return [{"full_name": "octocat/hello"}]
+
+    monkeypatch.setattr(sync_mod, "list_user_repos", _fake_list_repos)
+
+    calls: list[dict] = []
+
+    async def fake_list_merged_prs(token, repo, *, since_iso):
+        calls.append({"repo": repo, "since_iso": since_iso})
+        return []
+
+    monkeypatch.setattr(sync_mod, "list_merged_prs", fake_list_merged_prs)
+
+    summary = await sync_mod.sync_user_prs("ghp_test", "u-full-history")
+    assert summary["status"] == "ok"
+    assert calls, "list_merged_prs should have been called at least once"
+    for c in calls:
+        assert c["since_iso"] is None, (
+            f"full-history sync must pass since_iso=None, got {c['since_iso']!r}"
+        )
+
+    # Also exercise list_merged_prs itself with since_iso=None to make sure
+    # the new None-handling path in github_oauth doesn't crash and respects
+    # MAX_PAGES as a safety cap on pagination.
+    class _StubResp:
+        def __init__(self, body): self._body = body
+        def json(self): return self._body
+        def raise_for_status(self): return None
+
+    state = {"n": 0}
+
+    async def fake_request(token, url, *, params=None, extra_headers=None, accept=None, timeout=15.0):
+        state["n"] += 1
+        # Always return one merged PR per page so pagination runs until the cap.
+        return _StubResp([{"number": state["n"], "merged_at": "2020-01-01T00:00:00Z", "user": {"id": 1}}])
+
+    monkeypatch.setattr(github_oauth, "_request", fake_request)
+    result = await github_oauth.list_merged_prs("ghp_test", "octo/r", since_iso=None)
+    assert state["n"] == github_oauth.MAX_PAGES, (
+        f"pagination should cap at MAX_PAGES ({github_oauth.MAX_PAGES}), "
+        f"made {state['n']} requests"
+    )
+    assert len(result) == github_oauth.MAX_PAGES

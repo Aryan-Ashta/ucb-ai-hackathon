@@ -3,12 +3,14 @@ Orchestrator for the OAuth ingestion path.
 
 The webhook used to fire-and-forget one PR at a time. The OAuth path
 instead runs on demand: `sync_user_prs(access_token, user_id)` lists every
-repo the user can push to, walks the merged-PR list since the last sync,
+repo the user can push to, walks the full merged-PR history of each repo,
 and runs each new diff through the unchanged Bear-2 -> Claude -> Redis
 pipeline.
 
 Idempotent: re-running produces no new concepts because processed PRs
-are tracked in `user:{user_id}:prs` (Redis HASH).
+are tracked in `user:{user_id}:prs` (Redis HASH). For an already-synced
+user, every previously-processed PR is skipped locally before any
+network call, so a re-run is cheap even with full-history mode.
 
 Concurrency: a per-user Redis lock prevents two simultaneous syncs from
 double-billing Claude. The lock auto-releases after 5 min if the caller
@@ -28,26 +30,23 @@ from backend.services.github_oauth import (
 from backend.services.redis_client import (
     acquire_sync_lock,
     add_user_repo,
-    get_last_sync,
     list_processed_prs,
     mark_pr_processed,
     release_sync_lock,
     set_last_sync,
 )
 
-# First sync: pull the last 7 days. After that, only since the last successful sync.
-INITIAL_LOOKBACK_SECONDS: int = 7 * 24 * 60 * 60
-
-
-def _since_iso(ts: int) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+# Full-history mode: ingest every merged PR the signed-in user has access to.
+# Idempotency is handled by user:{user_id}:prs (one entry per processed PR
+# number), so re-running this for an already-synced user is cheap — only
+# new PRs go through the Bear-2 → Claude → Redis pipeline.
 
 
 async def sync_user_prs(access_token: str, user_id: str) -> dict:
     """
-    Pull all merged PRs the user has access to since the last sync, ingest
-    each new one. Returns a summary dict with per-stage counts and any
-    per-repo/per-PR errors encountered.
+    Pull all merged PRs the user has access to (full history) and ingest
+    each one not yet seen. Returns a summary dict with per-stage counts
+    and any per-repo/per-PR errors encountered.
     """
     if not await acquire_sync_lock(user_id):
         return {"status": "already_in_progress"}
@@ -63,9 +62,11 @@ async def sync_user_prs(access_token: str, user_id: str) -> dict:
 
     try:
         with sentry_sdk.start_transaction(op="sync", name=f"sync {user_id}"):
-            last = await get_last_sync(user_id)
-            since_ts = last or (int(time.time()) - INITIAL_LOOKBACK_SECONDS)
-            since_iso = _since_iso(since_ts)
+            # Pass since_iso=None on full-history calls so list_merged_prs does
+            # NOT filter by date. For incremental re-syncs (e.g. a manual
+            # refresh button hitting the endpoint again), the per-PR hash
+            # dedupes; no time gate needed.
+            since_iso = None
 
             already_seen = {p["pr_number"] for p in await list_processed_prs(user_id)}
 
