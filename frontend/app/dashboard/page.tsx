@@ -41,6 +41,20 @@ export default function Dashboard() {
   const hasAutoSyncedRef = useRef(false);
   // In-flight guard (avoids re-creating triggerSync when `syncing` flips).
   const syncingRef = useRef(false);
+  // P2-D3 (Trace M1): sessionStorage mirror of hasAutoSyncedRef so the
+  // flag survives unmount/remount cycles. A ref resets when the component
+  // unmounts, so navigating /dashboard → / → /dashboard mid-sync would
+  // fire a second auto-sync. The backend's acquire_sync_lock rejects the
+  // second POST, but we'd still flash 'syncing…' and burn a round-trip.
+  // We initialize from sessionStorage so a refresh or back/forward also
+  // counts as 'already synced this session'.
+  if (
+    typeof window !== "undefined" &&
+    sessionStorage.getItem("vibeschool:autoSynced") === "1" &&
+    !hasAutoSyncedRef.current
+  ) {
+    hasAutoSyncedRef.current = true;
+  }
 
   useEffect(() => {
     // P1-F5: preserve the original path as callbackUrl so the user lands back
@@ -98,6 +112,18 @@ export default function Dashboard() {
         setCommitGroups(groupByCommit(allData.concepts));
         if (dueData.due.length === 0 && !hasAutoSyncedRef.current) {
           hasAutoSyncedRef.current = true;
+          // P2-D3 (Trace M1): mirror to sessionStorage so a remount
+          // (e.g. /dashboard → / → /dashboard) doesn't re-fire the
+          // auto-sync. The backend's acquire_sync_lock protects against
+          // double-billing Claude; this just saves a round-trip + flash.
+          if (typeof window !== "undefined") {
+            try {
+              sessionStorage.setItem("vibeschool:autoSynced", "1");
+            } catch {
+              // sessionStorage can throw in privacy modes; the ref is
+              // the fallback for the current mount.
+            }
+          }
           void triggerSync(token);
         }
       })

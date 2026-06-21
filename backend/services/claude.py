@@ -9,6 +9,7 @@ from backend.models import QuizConcept
 from backend.services.bear2 import compress_diff
 from backend.services.concept_ids import build_concept_id_seed
 from backend.services.redis_client import cache_quiz_content
+from backend.services import vector_store
 
 # Client construction is conditional on USE_TOKENROUTER (see backend/config.py):
 #   • USE_TOKENROUTER unset/false → direct Anthropic (api.anthropic.com)
@@ -193,8 +194,46 @@ async def extract_concepts_and_cache(
             data={"concepts": [c.concept for c in concepts], "source_type": source_type},
         )
 
+        # Cache each concept's quiz content (per-concept Redis keys for
+        # due-set + state, can't batch — each has its own SM-2 slot).
         for concept in concepts:
             await cache_quiz_content(user_id, concept)
+
+        # Batch-index ALL extracted concepts in a single vector-store
+        # write → one Voyage HTTP call per source item instead of N
+        # (Trace 1 H2). HSET is idempotent so re-running on the same
+        # source is safe.
+        if concepts:
+            index_items = []
+            for c in concepts:
+                # The vector-store contract expects a flat dict per item.
+                # Pull source_type + pr_number_or_sha out of the concept_id
+                # so the index row matches what _schedule_vector_index used
+                # to write before the batch refactor.
+                cid = c.concept_id
+                # cid shape: "{user_id}:{pr_number|c-sha_short}:{slug}"
+                segs = cid.split(":")
+                if len(segs) >= 3 and segs[1].isdigit():
+                    pr_or_sha = str(segs[1])
+                elif len(segs) >= 3 and segs[1].startswith("c-"):
+                    pr_or_sha = segs[1][2:]
+                else:
+                    pr_or_sha = ""
+                index_items.append({
+                    "concept_id": c.concept_id,
+                    "concept_name": c.concept,
+                    "roast_text": c.roast_text,
+                    "question_text": c.question_text,
+                    "source_type": c.source_type,
+                    "pr_number_or_sha": pr_or_sha,
+                    "repo": c.repo,
+                })
+            try:
+                await vector_store.index_concepts_batch(user_id, index_items)
+            except Exception as e:
+                # vector_store already captures to Sentry; this is a final
+                # safety net so a vector failure never blocks ingestion.
+                sentry_sdk.capture_exception(e)
 
         return concepts
 

@@ -89,6 +89,10 @@ const upcomingConcept: Concept = {
 
 afterEach(() => {
   vi.clearAllMocks();
+  // P2-D3 (Trace M1): sessionStorage is per-tab and persists across
+  // renders in the same test run. Reset between tests so the
+  // auto-synced flag from one test doesn't bleed into the next.
+  sessionStorage.clear();
 });
 
 describe("Dashboard / unauthenticated", () => {
@@ -202,6 +206,29 @@ describe("Dashboard / authenticated, fetch results", () => {
     await waitFor(() => {
       expect(mockTriggerSync).toHaveBeenCalledWith("test-token");
     });
+    // P2-D3 (Trace M1): after the auto-sync fires, sessionStorage must
+    // carry the flag so a remount doesn't re-fire it.
+    expect(sessionStorage.getItem("vibeschool:autoSynced")).toBe("1");
+  });
+
+  it("skips auto-sync on remount when sessionStorage already has the flag", async () => {
+    // P2-D3 (Trace M1): simulate a remount where the previous mount
+    // already auto-synced. The dashboard must not re-fire triggerSync
+    // even though hasAutoSyncedRef resets to false on remount.
+    sessionStorage.setItem("vibeschool:autoSynced", "1");
+    mockListDueConcepts.mockResolvedValue({ user_id: "u_1", due: [], count: 0 });
+    mockListAllConcepts.mockResolvedValue({ user_id: "u_1", concepts: [], count: 0 });
+    mockTriggerSync.mockResolvedValue({});
+
+    render(<Dashboard />);
+
+    // Wait for the initial fetch to settle.
+    await waitFor(() => {
+      expect(screen.getByText(/All clear/i)).toBeInTheDocument();
+    });
+    // Give the effect chain a tick — sync should NOT have fired.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockTriggerSync).not.toHaveBeenCalled();
   });
 
   it("does NOT auto-sync when there are due concepts", async () => {
