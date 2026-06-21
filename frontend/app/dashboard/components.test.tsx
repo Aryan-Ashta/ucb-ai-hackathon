@@ -47,7 +47,7 @@ describe("DueCard", () => {
   it("links to /quiz/<concept_id>", () => {
     render(<DueCard concept={{ ...baseConcept, prTitle: "x" }} />);
     const link = screen.getByRole("link");
-    expect(link.getAttribute("href")).toBe("/quiz/u_1:42:caching");
+    expect(link.getAttribute("href")).toBe("/quiz/u_1%3A42%3Acaching");
   });
 
   it("uses coral accent for overdue concepts", () => {
@@ -91,7 +91,7 @@ describe("ConceptRow", () => {
 
   it("links to the quiz page", () => {
     render(<ConceptRow concept={baseConcept} />);
-    expect(screen.getByRole("link").getAttribute("href")).toBe("/quiz/u_1:42:caching");
+    expect(screen.getByRole("link").getAttribute("href")).toBe("/quiz/u_1%3A42%3Acaching");
   });
 });
 

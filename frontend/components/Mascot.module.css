@@ -1,0 +1,51 @@
+/* Banana-duck mascot animations — overlays rigged on top of the real
+   /public/mascot.svg artwork. Scoped via CSS Modules. */
+
+.stage { display: inline-flex; align-items: center; gap: 18px; }
+.figure { position: relative; transform-origin: 50% 92%; animation: bd-idle 5.2s ease-in-out infinite; will-change: transform; }
+.art { display: block; width: 100%; height: 100%; }
+.ov { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+
+.lid { transform-box: fill-box; transform-origin: center; transform: scaleY(0); }
+.stage[data-mood="idle"] .blink { animation: bd-blink 5.6s ease-in-out infinite; }
+
+.eyecover, .happyeye, .cheek, .brow, .narrow, .sparkles, .steam, .sweat, .think { opacity: 0; }
+.brow { transform-box: fill-box; transform-origin: center; transform: translateY(-26px); transition: opacity .55s ease, transform .9s cubic-bezier(.34,1.1,.5,1); }
+
+/* HAPPY */
+.stage[data-mood="happy"] .figure { animation: bd-hop 2.8s ease-in-out infinite; }
+.stage[data-mood="happy"] .eyecover { opacity: 1; }
+.stage[data-mood="happy"] .happyeye { opacity: 1; }
+.stage[data-mood="happy"] .cheek { opacity: .5; }
+.stage[data-mood="happy"] .sparkles { opacity: 1; }
+.stage[data-mood="happy"] .sparkles .sp { animation: bd-sparkle 2.6s ease-in-out infinite; }
+.stage[data-mood="happy"] .sparkles .sp:nth-child(2) { animation-delay: .9s; }
+.stage[data-mood="happy"] .sparkles .sp:nth-child(3) { animation-delay: 1.7s; }
+
+/* ANGRY */
+.stage[data-mood="angry"] .figure { animation: bd-tense 2.6s ease-in-out infinite; }
+.stage[data-mood="angry"] .brow { opacity: 1; transform: translateY(0); }
+.stage[data-mood="angry"] .narrow { opacity: 1; }
+.stage[data-mood="angry"] .steam { opacity: 1; }
+.stage[data-mood="angry"] .steam .pf { animation: bd-steam 2.6s ease-out infinite; }
+.stage[data-mood="angry"] .steam .pf:nth-child(2) { animation-delay: 1.3s; }
+
+/* THINKING */
+.stage[data-mood="thinking"] .figure { animation: bd-sway 3.8s ease-in-out infinite; }
+.stage[data-mood="thinking"] .sweat { opacity: 1; animation: bd-sweat 2.8s ease-in infinite; }
+.stage[data-mood="thinking"] .think { opacity: 1; }
+.stage[data-mood="thinking"] .think .td { animation: bd-thinkdot 1.7s ease-in-out infinite; }
+.stage[data-mood="thinking"] .think .td:nth-child(2) { animation-delay: .28s; }
+.stage[data-mood="thinking"] .think .td:nth-child(3) { animation-delay: .56s; }
+
+@keyframes bd-idle { 0%,100%{transform:scale(1)} 50%{transform:scale(1.02)} }
+@keyframes bd-blink { 0%,93%,100%{transform:scaleY(0)} 96%{transform:scaleY(1)} }
+@keyframes bd-hop { 0%,66%,100%{transform:translateY(0) scaleY(1) scaleX(1)} 78%{transform:translateY(-13px) scaleY(1.04) scaleX(.97)} 90%{transform:translateY(0) scaleY(.96) scaleX(1.04)} }
+@keyframes bd-tense { 0%,100%{transform:scale(1) rotate(0)} 50%{transform:scale(1.012) rotate(.6deg)} }
+@keyframes bd-sway { 0%,100%{transform:rotate(-3.2deg)} 50%{transform:rotate(3.2deg)} }
+@keyframes bd-sparkle { 0%,100%{transform:scale(.5);opacity:.15} 50%{transform:scale(1.1);opacity:1} }
+@keyframes bd-steam { 0%,38%{transform:translateY(0) scale(.5);opacity:0} 52%{opacity:.55} 100%{transform:translateY(-150px) scale(1.3);opacity:0} }
+@keyframes bd-sweat { 0%,58%{transform:translateY(0);opacity:0} 64%{opacity:.9} 100%{transform:translateY(95px);opacity:0} }
+@keyframes bd-thinkdot { 0%,100%{transform:translateY(0);opacity:.35} 50%{transform:translateY(-22px);opacity:1} }
+
+@media (prefers-reduced-motion: reduce) { .figure, .blink, .sp, .pf, .td { animation: none !important; } }
