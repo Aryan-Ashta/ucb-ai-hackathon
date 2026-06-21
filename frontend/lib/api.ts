@@ -110,8 +110,8 @@ export const api = {
       accessToken: token,
     }),
 
-  syncStatus: (token: string) =>
-    apiFetch<SyncStatusResponse>("/api/sync/status", { accessToken: token }),
+  syncStatus: (token: string, signal?: AbortSignal) =>
+    apiFetch<SyncStatusResponse>("/api/sync/status", { accessToken: token, ...(signal ? { signal } : {}) }),
 
   transcribeAudio: async (
     token: string,
