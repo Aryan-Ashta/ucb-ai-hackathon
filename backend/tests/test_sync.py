@@ -36,7 +36,7 @@ async def test_sync_user_prs_processes_new_prs(monkeypatch, fake_redis):
 
     extract_calls = []
 
-    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title=""):
+    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title="", prior_examples=None):
         extract_calls.append((user_id, pr_number))
         return []  # empty is fine; we only assert the call happened
 
@@ -78,7 +78,7 @@ async def test_sync_user_prs_skips_already_processed(monkeypatch, fake_redis):
 
     extract_calls = []
 
-    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title=""):
+    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title="", prior_examples=None):
         extract_calls.append(pr_number)
         return []
 
@@ -111,7 +111,7 @@ async def test_sync_user_prs_skips_empty_diff(monkeypatch, fake_redis):
 
     extract_calls = []
 
-    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title=""):
+    async def fake_extract(raw_diff, user_id, pr_number, repo="", pr_title="", prior_examples=None):
         extract_calls.append(pr_number)
         return []
 
@@ -246,7 +246,7 @@ async def test_sync_user_history_ingests_commits_in_addition_to_prs(monkeypatch,
 
     extract_calls: list[tuple[str, str | int]] = []
 
-    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title=""):
+    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title="", prior_examples=None):
         extract_calls.append((user_id, source_id))
         return []
 
@@ -301,7 +301,7 @@ async def test_sync_user_history_skips_already_processed_commits(monkeypatch, fa
 
     extract_calls: list[str] = []
 
-    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title=""):
+    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title="", prior_examples=None):
         extract_calls.append(source_id)
         return []
 
@@ -339,7 +339,7 @@ async def test_sync_user_history_max_commits_per_repo_caps_ingestion(monkeypatch
 
     monkeypatch.setattr(sync_mod, "fetch_commit_diff", fake_fetch_commit_diff)
 
-    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title=""):
+    async def fake_extract(raw_diff, user_id, source_id, repo="", pr_title="", prior_examples=None):
         return []
 
     monkeypatch.setattr(sync_mod, "extract_concepts_and_cache", fake_extract)

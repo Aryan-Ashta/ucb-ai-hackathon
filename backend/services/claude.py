@@ -48,6 +48,42 @@ Example output:
 ]"""
 
 
+# Suffix appended to the system prompt when prior_examples are
+# available. The few-shot anchor matches the user's existing voice
+# so new roasts feel like they came from the same examiner.
+_PRIOR_EXAMPLES_SUFFIX = """
+
+PRIOR EXAMPLES FROM THIS USER'S HISTORY
+(These are the user's previous concepts and roasts on related topics.
+Match the voice, vocabulary, and level of specificity. Do NOT duplicate
+the exact wording — write a fresh roast that fits the new diff.)
+
+{examples_block}
+"""
+
+
+def _format_prior_examples(examples) -> str:
+    """Render a list of similar-concept dicts into a few-shot block.
+
+    Examples are kept short (concept name + first 200 chars of roast)
+    so the total prompt grows by ~1KB even at k=5.
+    """
+    if not examples:
+        return ""
+    lines: list[str] = []
+    for ex in examples:
+        name = ex.get("concept_name", "(unnamed)")
+        roast = (ex.get("roast_text", "") or "")[:200]
+        src = ex.get("source_type", "")
+        prov = ex.get("pr_number_or_sha", "")
+        repo = ex.get("repo", "")
+        score = ex.get("score", 0)
+        lines.append(
+            f"- {name} (similarity={score:.2f}, {src} {prov}, {repo}): {roast}"
+        )
+    return "\n".join(lines)
+
+
 def _strip_fences(text: str) -> str:
     text = re.sub(r"^```json\s*", "", text)
     text = re.sub(r"^```\s*", "", text)
@@ -82,6 +118,7 @@ def _parse_json_envelope(raw_text: str, *, breadcrumb_label: str) -> object | No
 async def extract_concepts_and_cache(
     raw_diff: str, user_id: str, source_id: int | str,
     repo: str = "", pr_title: str = "",
+    prior_examples: list | None = None,
 ) -> list[QuizConcept]:
     """
     Full ingestion pipeline:
@@ -96,6 +133,16 @@ async def extract_concepts_and_cache(
     """
     concept_id_seed, source_type, commit_sha = build_concept_id_seed(user_id, source_id)
 
+    # Build the system prompt with optional prior_examples appended as
+    # few-shot anchors. When prior_examples is None or empty, this is
+    # a no-op — the prompt is the original SYSTEM_PROMPT.
+    system_prompt = SYSTEM_PROMPT
+    if prior_examples:
+        examples_block = _format_prior_examples(prior_examples)
+        system_prompt = SYSTEM_PROMPT + _PRIOR_EXAMPLES_SUFFIX.format(
+            examples_block=examples_block
+        )
+
     with sentry_sdk.start_span(op="claude.extract", name="Concept extraction"):
         compressed_diff = await compress_diff(raw_diff)
 
@@ -103,7 +150,7 @@ async def extract_concepts_and_cache(
             message = await client.messages.create(
                 model=MODEL,
                 max_tokens=2048,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 messages=[
                     {
                         "role": "user",

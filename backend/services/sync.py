@@ -32,18 +32,61 @@ from backend.services.github_oauth import (
 from backend.services.redis_client import (
     acquire_sync_lock,
     add_user_repo,
+    extract_user_id,
     list_processed_prs,
     mark_commit_processed,
     mark_pr_processed,
     release_sync_lock,
     set_last_sync,
 )
+from backend.services import vector_store
 
 # Per-repo cap on commits ingested per sync. Solo repos with thousands of
 # commits would otherwise produce an explosion of Claude calls. 100 is
 # enough to demo the loop end-to-end for any single repo and keeps the
 # sync wall-clock under a minute for a typical repo.
 DEFAULT_MAX_COMMITS_PER_REPO = 100
+
+# Per-source topic-query length — the diff / commit message is sliced
+# down to this many characters before being sent to the embedding model.
+# Short enough to fit comfortably in the prompt; long enough to carry
+# enough signal for vector recall.
+TOPIC_QUERY_CHARS = 500
+
+
+def _topic_query(diff_text: str) -> str:
+    """Build a topic-style query string from a diff or commit message.
+
+    Embeddings work best on short, descriptive strings — long diff
+    bodies dilute the signal. We slice to the first TOPIC_QUERY_CHARS
+    and label it as a "topic" so the vector index knows what it's
+    comparing against (concept representations in the index are
+    similar topic-style strings).
+    """
+    snippet = (diff_text or "").strip()[:TOPIC_QUERY_CHARS]
+    if not snippet:
+        snippet = "(empty diff)"
+    return f"topic: {snippet}"
+
+
+async def _retrieve_prior_examples(user_id: str, diff_text: str, *, k: int = 5) -> list:
+    """Fetch the user's top-K semantically similar past concepts.
+
+    Returns an empty list when the vector store is unavailable — this
+    is the graceful-degradation path so ingestion still works on
+    Redis instances without RediSearch.
+    """
+    try:
+        return await vector_store.find_similar(
+            user_id=user_id,
+            query_text=_topic_query(diff_text),
+            k=k,
+        )
+    except Exception as e:
+        # vector_store already captures to Sentry; this is a safety net
+        # so a vector failure never blocks ingestion.
+        sentry_sdk.capture_exception(e)
+        return []
 
 
 async def _ingest_pr(
@@ -69,9 +112,14 @@ async def _ingest_pr(
             )
             summary["prs_skipped"] += 1
             return
+        # Pull the user's prior similar concepts BEFORE calling Claude —
+        # used as in-context few-shot examples to keep voice consistent
+        # across syncs.
+        prior_examples = await _retrieve_prior_examples(user_id, cleaned)
         await extract_concepts_and_cache(
             cleaned, user_id, pr["number"],
             repo=full_name, pr_title=pr.get("title", ""),
+            prior_examples=prior_examples,
         )
         await mark_pr_processed(
             user_id, repo=full_name,
@@ -117,9 +165,11 @@ async def _ingest_commit(
             )
             summary["commits_skipped"] += 1
             return
+        prior_examples = await _retrieve_prior_examples(user_id, cleaned)
         await extract_concepts_and_cache(
             cleaned, user_id, sha,
             repo=full_name, pr_title=commit_msg,
+            prior_examples=prior_examples,
         )
         await mark_commit_processed(
             user_id, repo=full_name,
